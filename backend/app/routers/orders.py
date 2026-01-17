@@ -1,0 +1,208 @@
+import csv
+import io
+from datetime import datetime
+from fastapi import APIRouter, Depends, HTTPException, Response
+from sqlalchemy.orm import Session
+from sqlalchemy import func, case
+
+from ..db import get_db
+from ..routers.auth import get_current_user_from_header
+from ..models import Order, Customer, CustomerPhone, User
+from ..schemas import (
+    OrderCreate, OrderOut, OrderNoteUpdate, OrderAmountsUpdate, OutstandingCustomerRow
+)
+from ..services.points import calc_points_earned
+
+router = APIRouter(prefix="/orders", tags=["orders"])
+
+
+@router.post("", response_model=OrderOut)
+def create_order(
+    payload: OrderCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user_from_header),
+):
+    c = db.query(Customer).filter(Customer.id == payload.customer_id).first()
+    if not c:
+        raise HTTPException(status_code=404, detail="Customer not found")
+
+    # paid_amount default behavior (but still stored explicitly)
+    paid_amount = payload.paid_amount if payload.paid_amount is not None else payload.amount
+
+    if paid_amount > payload.amount:
+        raise HTTPException(status_code=400, detail="paid_amount cannot exceed amount (MVP rule)")
+
+    points = calc_points_earned(payload.amount)
+
+    o = Order(
+        customer_id=payload.customer_id,
+        phone_number_used=payload.phone_number_used,
+        amount=payload.amount,
+        paid_amount=paid_amount,
+        points_earned=points,
+        points_used=0,
+        operator_user_id=user.id,
+        note=payload.note,
+    )
+    db.add(o)
+    db.commit()
+    db.refresh(o)
+
+    return OrderOut(
+        id=o.id,
+        customer_id=o.customer_id,
+        phone_number_used=o.phone_number_used,
+        amount=float(o.amount),
+        paid_amount=float(o.paid_amount),
+        points_earned=o.points_earned,
+        points_used=o.points_used,
+        operator_user_id=o.operator_user_id,
+        created_at=o.created_at,
+        note=o.note,
+    )
+
+
+@router.patch("/{order_id}/note", response_model=OrderOut)
+def update_order_note(
+    order_id: int,
+    payload: OrderNoteUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user_from_header),
+):
+    if not user.can_edit_order_note and user.role.value != "admin":
+        raise HTTPException(status_code=403, detail="No permission to edit order note")
+
+    o = db.query(Order).filter(Order.id == order_id).first()
+    if not o:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    o.note = payload.note
+    db.commit()
+    db.refresh(o)
+
+    return OrderOut(
+        id=o.id,
+        customer_id=o.customer_id,
+        phone_number_used=o.phone_number_used,
+        amount=float(o.amount),
+        paid_amount=float(o.paid_amount),
+        points_earned=o.points_earned,
+        points_used=o.points_used,
+        operator_user_id=o.operator_user_id,
+        created_at=o.created_at,
+        note=o.note,
+    )
+
+
+@router.patch("/{order_id}/amounts", response_model=OrderOut)
+def update_order_amounts_admin(
+    order_id: int,
+    payload: OrderAmountsUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user_from_header),
+):
+    if user.role.value != "admin" and not user.can_edit_order_amounts:
+        raise HTTPException(status_code=403, detail="Admin permission required")
+
+    if payload.paid_amount > payload.amount:
+        raise HTTPException(status_code=400, detail="paid_amount cannot exceed amount (MVP rule)")
+
+    o = db.query(Order).filter(Order.id == order_id).first()
+    if not o:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    o.amount = payload.amount
+    o.paid_amount = payload.paid_amount
+    o.points_earned = calc_points_earned(payload.amount)
+    db.commit()
+    db.refresh(o)
+
+    return OrderOut(
+        id=o.id,
+        customer_id=o.customer_id,
+        phone_number_used=o.phone_number_used,
+        amount=float(o.amount),
+        paid_amount=float(o.paid_amount),
+        points_earned=o.points_earned,
+        points_used=o.points_used,
+        operator_user_id=o.operator_user_id,
+        created_at=o.created_at,
+        note=o.note,
+    )
+
+
+@router.get("/outstanding/customers", response_model=list[OutstandingCustomerRow])
+def list_outstanding_customers(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user_from_header),
+):
+    # outstanding per order: max(amount - paid_amount, 0)
+    outstanding_expr = case((Order.amount > Order.paid_amount, Order.amount - Order.paid_amount), else_=0)
+
+    # primary phone subquery
+    primary_phone_sq = (
+        db.query(CustomerPhone.customer_id, func.max(CustomerPhone.phone_number).label("primary_phone"))
+        .filter(CustomerPhone.is_primary == True)  # noqa: E712
+        .group_by(CustomerPhone.customer_id)
+        .subquery()
+    )
+
+    rows = (
+        db.query(
+            Customer.id.label("customer_id"),
+            Customer.nickname.label("nickname"),
+            primary_phone_sq.c.primary_phone.label("primary_phone"),
+            func.sum(outstanding_expr).label("total_outstanding"),
+            func.max(Order.created_at).label("last_order_at"),
+        )
+        .join(Order, Order.customer_id == Customer.id)
+        .outerjoin(primary_phone_sq, primary_phone_sq.c.customer_id == Customer.id)
+        .group_by(Customer.id, Customer.nickname, primary_phone_sq.c.primary_phone)
+        .having(func.sum(outstanding_expr) > 0)
+        .order_by(func.max(Order.created_at).desc())  # B: most recent first
+        .limit(200)
+        .all()
+    )
+
+    return [
+        OutstandingCustomerRow(
+            customer_id=r.customer_id,
+            nickname=r.nickname,
+            primary_phone=r.primary_phone,
+            total_outstanding=float(r.total_outstanding),
+            last_order_at=r.last_order_at,
+        )
+        for r in rows
+    ]
+
+
+@router.get("/export")
+def export_orders_csv(
+    start: str | None = None,
+    end: str | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user_from_header),
+):
+    q = db.query(Order)
+
+    def parse_dt(s: str) -> datetime:
+        return datetime.fromisoformat(s)
+
+    if start:
+        q = q.filter(Order.created_at >= parse_dt(start))
+    if end:
+        q = q.filter(Order.created_at <= parse_dt(end))
+
+    orders = q.order_by(Order.created_at.desc()).limit(10000).all()
+
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["created_at", "order_id", "customer_id", "phone_number_used", "amount", "paid_amount", "points_earned", "operator_user_id", "note"])
+    for o in orders:
+        w.writerow([o.created_at.isoformat(), o.id, o.customer_id, o.phone_number_used, float(o.amount), float(o.paid_amount), o.points_earned, o.operator_user_id, o.note or ""])
+
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=orders_export.csv"},
+    )

@@ -1,5 +1,7 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
+from typing import Generator
+from sqlalchemy.orm import Session
 
 DATABASE_URL = "sqlite:///./dev.db"  # MVP: local sqlite, deploy later use Postgres
 
@@ -12,3 +14,12 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 class Base(DeclarativeBase):
     pass
+from typing import Generator
+from sqlalchemy.orm import Session
+
+def get_db() -> Generator[Session, None, None]:
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
