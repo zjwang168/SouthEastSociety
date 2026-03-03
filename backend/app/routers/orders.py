@@ -13,6 +13,7 @@ from ..schemas import (
     OrderCreate, OrderOut, OrderNoteUpdate, OrderAmountsUpdate, OutstandingCustomerRow
 )
 from ..services.points import calc_points_earned
+from typing import Optional
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 
@@ -256,3 +257,35 @@ def export_orders_csv(
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=orders_export.csv"},
     )
+
+@router.get("", response_model=list[OrderOut])
+def list_orders(
+    customer_id: Optional[int] = None,
+    limit: int = 200,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user_from_header),
+):
+    q = db.query(Order)
+
+    if customer_id is not None:
+        q = q.filter(Order.customer_id == customer_id)
+
+    limit = max(1, min(limit, 500))
+
+    rows = q.order_by(Order.created_at.desc()).limit(limit).all()
+
+    return [
+        OrderOut(
+            id=o.id,
+            customer_id=o.customer_id,
+            phone_number_used=o.phone_number_used,
+            amount=float(o.amount),
+            paid_amount=float(o.paid_amount),
+            points_earned=o.points_earned,
+            points_used=o.points_used,
+            operator_user_id=o.operator_user_id,
+            created_at=o.created_at,
+            note=o.note,
+        )
+        for o in rows
+    ]

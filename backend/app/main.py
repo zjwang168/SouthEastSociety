@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from sqlalchemy.orm import Session
+from fastapi.middleware.cors import CORSMiddleware
 
 from .db import Base, engine, SessionLocal
 from . import models  # noqa: F401
@@ -10,6 +11,15 @@ from .routers.orders import router as orders_router
 from .routers.sms import router as sms_router
 
 app = FastAPI(title="SouthEastSociety - Internal Dashboard API")
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 Base.metadata.create_all(bind=engine)
 

@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..routers.auth import get_current_user_from_header
 from ..models import Customer, CustomerPhone
-from ..schemas import CustomerCreate, CustomerWithPhones, PhoneCreate, PhoneOut
+from ..schemas import CustomerCreate, CustomerWithPhones, PhoneCreate, PhoneOut, PhoneUpdate
 
 router = APIRouter(prefix="/customers", tags=["customers"])
 
@@ -112,3 +112,65 @@ def add_phone(
         sms_enabled=p.sms_enabled,
         created_at=p.created_at,
     )
+
+@router.patch("/{customer_id}/phones/{phone_id}", response_model=PhoneOut)
+def update_phone(
+    customer_id: int,
+    phone_id: int,
+    payload: PhoneUpdate,
+    db: Session = Depends(get_db),
+):
+    phone = (
+        db.query(CustomerPhone)
+        .filter(CustomerPhone.id == phone_id, CustomerPhone.customer_id == customer_id)
+        .first()
+    )
+    if not phone:
+        raise HTTPException(status_code=404, detail="Phone not found")
+
+    # Update sms_enabled if provided
+    if payload.sms_enabled is not None:
+        phone.sms_enabled = payload.sms_enabled
+
+    # Update is_primary if provided
+    if payload.is_primary is not None:
+        if payload.is_primary:
+            # Unset others
+            db.query(CustomerPhone).filter(
+                CustomerPhone.customer_id == customer_id,
+                CustomerPhone.id != phone_id,
+            ).update({"is_primary": False})
+            phone.is_primary = True
+        else:
+            phone.is_primary = False
+
+    db.commit()
+    db.refresh(phone)
+
+    return PhoneOut(
+        id=phone.id,
+        customer_id=phone.customer_id,
+        phone_number=phone.phone_number,
+        is_primary=phone.is_primary,
+        sms_enabled=phone.sms_enabled,
+        created_at=phone.created_at,
+    )
+
+
+@router.delete("/{customer_id}/phones/{phone_id}")
+def delete_phone(
+    customer_id: int,
+    phone_id: int,
+    db: Session = Depends(get_db),
+):
+    phone = (
+        db.query(CustomerPhone)
+        .filter(CustomerPhone.id == phone_id, CustomerPhone.customer_id == customer_id)
+        .first()
+    )
+    if not phone:
+        raise HTTPException(status_code=404, detail="Phone not found")
+
+    db.delete(phone)
+    db.commit()
+    return {"status": "ok"}

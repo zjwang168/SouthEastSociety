@@ -1,6 +1,8 @@
 from datetime import datetime
 from pydantic import BaseModel, Field
 from typing import Optional, List
+from pydantic import BaseModel
+from typing import Optional
 
 
 # ---------- Auth ----------
@@ -110,3 +112,7 @@ class OutstandingCustomerRow(BaseModel):
     primary_phone: Optional[str] = None
     total_outstanding: float
     last_order_at: datetime
+
+class PhoneUpdate(BaseModel):
+    is_primary: Optional[bool] = None
+    sms_enabled: Optional[bool] = None

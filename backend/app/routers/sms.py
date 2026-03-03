@@ -1,6 +1,8 @@
 from datetime import date, datetime
+from typing import Optional
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..db import get_db
@@ -9,6 +11,47 @@ from ..models import SmsQueue, SmsLog, SmsStatus
 from ..services.sms import send_sms
 
 router = APIRouter()
+
+
+class SmsQueueCreate(BaseModel):
+    customer_id: int
+    phone_number: str
+    message: str
+    scheduled_for: Optional[date] = None
+    order_id: Optional[int] = None
+
+
+@router.post("/queue")
+def create_queue_item(payload: SmsQueueCreate, db: Session = Depends(get_db), admin=Depends(require_admin)):
+    """
+    Create a pending SMS queue item (Admin-only).
+    Used by Outstanding page button.
+    """
+    scheduled_for = payload.scheduled_for or date.today()
+
+    row = SmsQueue(
+        customer_id=payload.customer_id,
+        order_id=payload.order_id,
+        phone_number=payload.phone_number,
+        message=payload.message,
+        scheduled_for=scheduled_for,
+        status="pending",
+        sent_at=None,
+        error=None,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+
+    return {
+        "id": row.id,
+        "customer_id": row.customer_id,
+        "order_id": row.order_id,
+        "phone_number": row.phone_number,
+        "message": row.message,
+        "scheduled_for": str(row.scheduled_for),
+        "status": row.status,
+    }
 
 
 @router.get("/queue")
