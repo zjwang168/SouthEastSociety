@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from .db import get_db
 from .models import User
 
-# ⚠️ MVP: deployment should use env var
+# TODO: move to env var in production
 SECRET_KEY = "CHANGE_ME_TO_A_LONG_RANDOM_SECRET"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_HOURS = 12

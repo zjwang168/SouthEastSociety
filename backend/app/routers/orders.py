@@ -1,19 +1,36 @@
 import csv
 import io
-from datetime import datetime
+from datetime import datetime, date
+
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import func, case
 
 from ..db import get_db
 from ..routers.auth import get_current_user_from_header
-from ..models import Order, Customer, CustomerPhone, User
+from ..models import Order, Customer, CustomerPhone, User, SmsQueue
 from ..schemas import (
     OrderCreate, OrderOut, OrderNoteUpdate, OrderAmountsUpdate, OutstandingCustomerRow
 )
 from ..services.points import calc_points_earned
 
 router = APIRouter(prefix="/orders", tags=["orders"])
+
+
+def _get_primary_phone(db: Session, customer_id: int) -> str | None:
+    row = (
+        db.query(CustomerPhone)
+        .filter(CustomerPhone.customer_id == customer_id, CustomerPhone.is_primary == True)  # noqa: E712
+        .first()
+    )
+    return row.phone_number if row else None
+
+
+def _build_outstanding_sms_message(nickname: str | None, outstanding: float) -> str:
+    # MVP v1: English only. No message if outstanding <= 0 (handled by caller).
+    name = nickname.strip() if nickname else "there"
+    # Keep it simple and neutral.
+    return f"Hi {name}, this is a friendly reminder that your balance is ${outstanding:.2f}. Thank you!"
 
 
 @router.post("", response_model=OrderOut)
@@ -47,6 +64,26 @@ def create_order(
     db.add(o)
     db.commit()
     db.refresh(o)
+
+    # ---- SMS enqueue (MVP): only if outstanding > 0 ----
+    outstanding = float(o.amount) - float(o.paid_amount)
+    if outstanding > 0:
+        # Prefer customer's primary phone if exists, otherwise fallback to phone_number_used.
+        to_phone = _get_primary_phone(db, o.customer_id) or o.phone_number_used
+
+        msg = _build_outstanding_sms_message(c.nickname, outstanding)
+
+        q = SmsQueue(
+            customer_id=o.customer_id,
+            order_id=o.id,
+            phone_number=to_phone,
+            message=msg,
+            status="pending",
+            scheduled_for=date.today(),
+        )
+        db.add(q)
+        db.commit()
+    # -----------------------------------------------
 
     return OrderOut(
         id=o.id,
@@ -159,7 +196,7 @@ def list_outstanding_customers(
         .outerjoin(primary_phone_sq, primary_phone_sq.c.customer_id == Customer.id)
         .group_by(Customer.id, Customer.nickname, primary_phone_sq.c.primary_phone)
         .having(func.sum(outstanding_expr) > 0)
-        .order_by(func.max(Order.created_at).desc())  # B: most recent first
+        .order_by(func.max(Order.created_at).desc())
         .limit(200)
         .all()
     )
@@ -197,9 +234,22 @@ def export_orders_csv(
 
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["created_at", "order_id", "customer_id", "phone_number_used", "amount", "paid_amount", "points_earned", "operator_user_id", "note"])
+    w.writerow([
+        "created_at", "order_id", "customer_id", "phone_number_used",
+        "amount", "paid_amount", "points_earned", "operator_user_id", "note"
+    ])
     for o in orders:
-        w.writerow([o.created_at.isoformat(), o.id, o.customer_id, o.phone_number_used, float(o.amount), float(o.paid_amount), o.points_earned, o.operator_user_id, o.note or ""])
+        w.writerow([
+            o.created_at.isoformat(),
+            o.id,
+            o.customer_id,
+            o.phone_number_used,
+            float(o.amount),
+            float(o.paid_amount),
+            o.points_earned,
+            o.operator_user_id,
+            o.note or ""
+        ])
 
     return Response(
         content=buf.getvalue(),
