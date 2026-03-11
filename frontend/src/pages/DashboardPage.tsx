@@ -25,6 +25,7 @@ export default function DashboardPage() {
       } catch (err: any) {
         setError("Not logged in (or token expired).");
         localStorage.removeItem("access_token");
+        localStorage.removeItem("user_role");
         nav("/login");
       }
     }
@@ -33,6 +34,7 @@ export default function DashboardPage() {
 
   function logout() {
     localStorage.removeItem("access_token");
+    localStorage.removeItem("user_role");
     nav("/login");
   }
 
@@ -66,21 +68,37 @@ export default function DashboardPage() {
         <div style={{ fontWeight: 700, marginBottom: 10 }}>Quick Actions</div>
 
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-          <Link to="/orders/new" style={primaryBtn}>
-            + Create Order
-          </Link>
+          {/* Admin only */}
+          {me.role === "admin" && (
+            <>
+              <Link to="/orders/new" style={primaryBtn}>
+                + Create Order
+              </Link>
 
-          <Link to="/customers" style={secondaryBtn}>
-            Customers
-          </Link>
+              <Link to="/customers" style={secondaryBtn}>
+                Customers
+              </Link>
 
-          <Link to="/outstanding" style={secondaryBtn}>
-            Outstanding
+              <Link to="/outstanding" style={secondaryBtn}>
+                Outstanding
+              </Link>
+
+              <Link to="/sms" style={secondaryBtn}>
+                SMS Queue
+              </Link>
+            </>
+          )}
+
+          {/* Admin + Staff */}
+          <Link to="/export" style={secondaryBtn}>
+            Export CSV
           </Link>
         </div>
 
         <div style={{ marginTop: 10, color: "#666", fontSize: 12 }}>
-          Tip: Create an order first, then check Outstanding to generate SMS reminders.
+          {me.role === "admin"
+            ? "Tip: Admin can manage orders, customers, outstanding balances, SMS queue, and export CSV."
+            : "Tip: Staff account is for accounting export and data analysis only."}
         </div>
       </div>
     </div>
