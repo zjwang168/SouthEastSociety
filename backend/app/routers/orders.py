@@ -2,6 +2,7 @@ import csv
 import io
 from datetime import datetime, date
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
@@ -17,6 +18,9 @@ from ..services.points import calc_points_earned
 from ..services.audit import write_audit_log
 
 router = APIRouter(prefix="/orders", tags=["orders"])
+
+ET = ZoneInfo("America/New_York")
+UTC = ZoneInfo("UTC")
 
 
 def _get_primary_phone(db: Session, customer_id: int) -> str | None:
@@ -39,6 +43,12 @@ def _mask_phone(phone: str | None) -> str:
     if len(phone) >= 7:
         return f"{phone[:3]}****{phone[-4:]}"
     return "****"
+
+
+def _to_eastern_string(dt: datetime) -> str:
+    # 当前数据库里的时间基本是 UTC naive
+    dt_utc = dt.replace(tzinfo=UTC)
+    return dt_utc.astimezone(ET).strftime("%Y-%m-%d %I:%M:%S %p")
 
 
 @router.post("", response_model=OrderOut)
@@ -294,7 +304,7 @@ def export_orders_csv(
     for o in orders:
         phone_value = o.phone_number_used if user.role.value == "admin" else _mask_phone(o.phone_number_used)
         w.writerow([
-            o.created_at.isoformat(),
+            _to_eastern_string(o.created_at),
             o.id,
             o.customer_id,
             phone_value,
