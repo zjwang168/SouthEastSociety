@@ -1,6 +1,7 @@
 import csv
 import io
 from datetime import datetime, date
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
@@ -13,7 +14,7 @@ from ..schemas import (
     OrderCreate, OrderOut, OrderNoteUpdate, OrderAmountsUpdate, OutstandingCustomerRow
 )
 from ..services.points import calc_points_earned
-from typing import Optional
+from ..services.audit import write_audit_log
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 
@@ -28,10 +29,16 @@ def _get_primary_phone(db: Session, customer_id: int) -> str | None:
 
 
 def _build_outstanding_sms_message(nickname: str | None, outstanding: float) -> str:
-    # MVP v1: English only. No message if outstanding <= 0 (handled by caller).
     name = nickname.strip() if nickname else "there"
-    # Keep it simple and neutral.
     return f"Hi {name}, this is a friendly reminder that your balance is ${outstanding:.2f}. Thank you!"
+
+
+def _mask_phone(phone: str | None) -> str:
+    if not phone:
+        return ""
+    if len(phone) >= 7:
+        return f"{phone[:3]}****{phone[-4:]}"
+    return "****"
 
 
 @router.post("", response_model=OrderOut)
@@ -44,7 +51,6 @@ def create_order(
     if not c:
         raise HTTPException(status_code=404, detail="Customer not found")
 
-    # paid_amount default behavior (but still stored explicitly)
     paid_amount = payload.paid_amount if payload.paid_amount is not None else payload.amount
 
     if paid_amount > payload.amount:
@@ -66,12 +72,26 @@ def create_order(
     db.commit()
     db.refresh(o)
 
-    # ---- SMS enqueue (MVP): only if outstanding > 0 ----
+    write_audit_log(
+        db=db,
+        actor_user_id=user.id,
+        action="CREATE_ORDER",
+        entity_type="order",
+        entity_id=str(o.id),
+        after={
+            "customer_id": o.customer_id,
+            "phone_number_used": o.phone_number_used,
+            "amount": float(o.amount),
+            "paid_amount": float(o.paid_amount),
+            "points_earned": o.points_earned,
+            "note": o.note,
+        },
+    )
+    db.commit()
+
     outstanding = float(o.amount) - float(o.paid_amount)
     if outstanding > 0:
-        # Prefer customer's primary phone if exists, otherwise fallback to phone_number_used.
         to_phone = _get_primary_phone(db, o.customer_id) or o.phone_number_used
-
         msg = _build_outstanding_sms_message(c.nickname, outstanding)
 
         q = SmsQueue(
@@ -84,7 +104,6 @@ def create_order(
         )
         db.add(q)
         db.commit()
-    # -----------------------------------------------
 
     return OrderOut(
         id=o.id,
@@ -114,9 +133,22 @@ def update_order_note(
     if not o:
         raise HTTPException(status_code=404, detail="Order not found")
 
+    before = {"note": o.note}
+
     o.note = payload.note
     db.commit()
     db.refresh(o)
+
+    write_audit_log(
+        db=db,
+        actor_user_id=user.id,
+        action="UPDATE_ORDER_NOTE",
+        entity_type="order",
+        entity_id=str(o.id),
+        before=before,
+        after={"note": o.note},
+    )
+    db.commit()
 
     return OrderOut(
         id=o.id,
@@ -149,11 +181,32 @@ def update_order_amounts_admin(
     if not o:
         raise HTTPException(status_code=404, detail="Order not found")
 
+    before = {
+        "amount": float(o.amount),
+        "paid_amount": float(o.paid_amount),
+        "points_earned": o.points_earned,
+    }
+
     o.amount = payload.amount
     o.paid_amount = payload.paid_amount
     o.points_earned = calc_points_earned(payload.amount)
     db.commit()
     db.refresh(o)
+
+    write_audit_log(
+        db=db,
+        actor_user_id=user.id,
+        action="UPDATE_ORDER_AMOUNTS",
+        entity_type="order",
+        entity_id=str(o.id),
+        before=before,
+        after={
+            "amount": float(o.amount),
+            "paid_amount": float(o.paid_amount),
+            "points_earned": o.points_earned,
+        },
+    )
+    db.commit()
 
     return OrderOut(
         id=o.id,
@@ -174,10 +227,8 @@ def list_outstanding_customers(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user_from_header),
 ):
-    # outstanding per order: max(amount - paid_amount, 0)
     outstanding_expr = case((Order.amount > Order.paid_amount, Order.amount - Order.paid_amount), else_=0)
 
-    # primary phone subquery
     primary_phone_sq = (
         db.query(CustomerPhone.customer_id, func.max(CustomerPhone.phone_number).label("primary_phone"))
         .filter(CustomerPhone.is_primary == True)  # noqa: E712
@@ -206,7 +257,7 @@ def list_outstanding_customers(
         OutstandingCustomerRow(
             customer_id=r.customer_id,
             nickname=r.nickname,
-            primary_phone=r.primary_phone,
+            primary_phone=r.primary_phone if user.role.value == "admin" else None,
             total_outstanding=float(r.total_outstanding),
             last_order_at=r.last_order_at,
         )
@@ -239,12 +290,14 @@ def export_orders_csv(
         "created_at", "order_id", "customer_id", "phone_number_used",
         "amount", "paid_amount", "points_earned", "operator_user_id", "note"
     ])
+
     for o in orders:
+        phone_value = o.phone_number_used if user.role.value == "admin" else _mask_phone(o.phone_number_used)
         w.writerow([
             o.created_at.isoformat(),
             o.id,
             o.customer_id,
-            o.phone_number_used,
+            phone_value,
             float(o.amount),
             float(o.paid_amount),
             o.points_earned,
@@ -252,11 +305,27 @@ def export_orders_csv(
             o.note or ""
         ])
 
+    write_audit_log(
+        db=db,
+        actor_user_id=user.id,
+        action="EXPORT_CSV",
+        entity_type="orders",
+        entity_id=f"{start or 'none'}__{end or 'none'}",
+        after={
+            "start": start,
+            "end": end,
+            "rows": len(orders),
+            "role": user.role.value,
+        },
+    )
+    db.commit()
+
     return Response(
         content=buf.getvalue(),
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=orders_export.csv"},
     )
+
 
 @router.get("", response_model=list[OrderOut])
 def list_orders(

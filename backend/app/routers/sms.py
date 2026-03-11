@@ -7,8 +7,10 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..deps import require_admin
-from ..models import SmsQueue, SmsLog, SmsStatus
+from ..models import SmsQueue, SmsLog, SmsStatus, User
+from ..routers.auth import get_current_user_from_header
 from ..services.sms import send_sms
+from ..services.audit import write_audit_log
 
 router = APIRouter()
 
@@ -22,7 +24,12 @@ class SmsQueueCreate(BaseModel):
 
 
 @router.post("/queue")
-def create_queue_item(payload: SmsQueueCreate, db: Session = Depends(get_db), admin=Depends(require_admin)):
+def create_queue_item(
+    payload: SmsQueueCreate,
+    db: Session = Depends(get_db),
+    admin=Depends(require_admin),
+    user: User = Depends(get_current_user_from_header),
+):
     """
     Create a pending SMS queue item (Admin-only).
     Used by Outstanding page button.
@@ -43,6 +50,23 @@ def create_queue_item(payload: SmsQueueCreate, db: Session = Depends(get_db), ad
     db.commit()
     db.refresh(row)
 
+    write_audit_log(
+        db=db,
+        actor_user_id=user.id,
+        action="QUEUE_SMS",
+        entity_type="sms_queue",
+        entity_id=str(row.id),
+        after={
+            "customer_id": row.customer_id,
+            "order_id": row.order_id,
+            "phone_number": row.phone_number,
+            "message": row.message,
+            "scheduled_for": str(row.scheduled_for),
+            "status": row.status,
+        },
+    )
+    db.commit()
+
     return {
         "id": row.id,
         "customer_id": row.customer_id,
@@ -55,7 +79,10 @@ def create_queue_item(payload: SmsQueueCreate, db: Session = Depends(get_db), ad
 
 
 @router.get("/queue")
-def list_today_queue(db: Session = Depends(get_db), admin=Depends(require_admin)):
+def list_today_queue(
+    db: Session = Depends(get_db),
+    admin=Depends(require_admin),
+):
     """
     List all pending SMS scheduled for today.
     Admin-only.
@@ -82,7 +109,11 @@ def list_today_queue(db: Session = Depends(get_db), admin=Depends(require_admin)
 
 
 @router.post("/send-due")
-def send_due_today(db: Session = Depends(get_db), admin=Depends(require_admin)):
+def send_due_today(
+    db: Session = Depends(get_db),
+    admin=Depends(require_admin),
+    user: User = Depends(get_current_user_from_header),
+):
     """
     Send all pending SMS scheduled for today.
     Admin-only.
@@ -118,6 +149,18 @@ def send_due_today(db: Session = Depends(get_db), admin=Depends(require_admin)):
             r.status = "failed"
             r.error = str(e)
             results.append({"queue_id": r.id, "status": "failed", "error": str(e)})
+
+    write_audit_log(
+        db=db,
+        actor_user_id=user.id,
+        action="SEND_SMS_DUE",
+        entity_type="sms_queue_batch",
+        entity_id="today",
+        after={
+            "count": len(results),
+            "results": results,
+        },
+    )
 
     db.commit()
     return {"count": len(results), "results": results}

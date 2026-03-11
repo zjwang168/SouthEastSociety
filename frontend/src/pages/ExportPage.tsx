@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { api, API_BASE_URL } from "../api";
+import { api } from "../api";
 
 export default function ExportPage() {
   const nav = useNavigate();
@@ -42,19 +42,12 @@ export default function ExportPage() {
     setLoading(true);
 
     try {
-      const token = localStorage.getItem("access_token");
-
       const res = await api.get("/orders/export", {
         params: {
           start: buildStartIso(startDate),
           end: buildEndIso(endDate),
         },
         responseType: "blob",
-        headers: token
-          ? {
-              Authorization: `Bearer ${token}`,
-            }
-          : {},
       });
 
       const blob = new Blob([res.data], { type: "text/csv;charset=utf-8;" });
@@ -76,10 +69,7 @@ export default function ExportPage() {
         return;
       }
 
-      const msg =
-        e?.response?.data?.detail ??
-        e?.message ??
-        "Failed to export CSV.";
+      const msg = e?.response?.data?.detail ?? e?.message ?? "Failed to export CSV.";
       setError(String(msg));
     } finally {
       setLoading(false);
@@ -105,14 +95,7 @@ export default function ExportPage() {
   }
 
   return (
-    <div
-      style={{
-        maxWidth: 900,
-        margin: "40px auto",
-        padding: 24,
-        fontFamily: "system-ui",
-      }}
-    >
+    <div style={{ maxWidth: 900, margin: "40px auto", padding: 24, fontFamily: "system-ui" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <h1 style={{ margin: 0 }}>Export CSV</h1>
         <div style={{ flex: 1 }} />
@@ -135,14 +118,7 @@ export default function ExportPage() {
         </button>
       </div>
 
-      <div
-        style={{
-          background: "#f6f6f6",
-          padding: 16,
-          borderRadius: 12,
-          marginBottom: 16,
-        }}
-      >
+      <div style={{ background: "#f6f6f6", padding: 16, borderRadius: 12, marginBottom: 16 }}>
         <div style={{ fontWeight: 700, marginBottom: 10 }}>Export Orders by Date Range</div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
@@ -183,39 +159,13 @@ export default function ExportPage() {
         </button>
       </div>
 
-      {error && (
-        <div
-          style={{
-            background: "#ffe8e8",
-            color: "#b00020",
-            padding: 12,
-            borderRadius: 8,
-            marginBottom: 12,
-          }}
-        >
-          {error}
-        </div>
-      )}
+      {error && <div style={errorBox}>{error}</div>}
 
-      <div
-        style={{
-          border: "1px solid #eee",
-          borderRadius: 12,
-          padding: 16,
-          lineHeight: 1.7,
-        }}
-      >
+      <div style={{ border: "1px solid #eee", borderRadius: 12, padding: 16, lineHeight: 1.7 }}>
         <div style={{ fontWeight: 700, marginBottom: 8 }}>How this works</div>
-
-        <div>
-          • The system exports orders based on <code>created_at</code>, which is recorded automatically by the backend.
-        </div>
-        <div>
-          • Order time is not manually editable, so daily/monthly CSV stays consistent for accounting and tax use.
-        </div>
-        <div>
-          • API used: <code>/orders/export?start=...&end=...</code>
-        </div>
+        <div>• The system exports orders based on <code>created_at</code>, which is recorded automatically by the backend.</div>
+        <div>• Order time is not manually editable, so daily/monthly CSV stays consistent for accounting and tax use.</div>
+        <div>• Admin export includes full phone number; Staff export masks phone number.</div>
       </div>
     </div>
   );
@@ -245,4 +195,12 @@ const secondaryBtn: React.CSSProperties = {
   borderRadius: 8,
   border: "1px solid #e5e7eb",
   background: "white",
+};
+
+const errorBox: React.CSSProperties = {
+  background: "#ffe8e8",
+  color: "#b00020",
+  padding: 12,
+  borderRadius: 8,
+  marginBottom: 12,
 };

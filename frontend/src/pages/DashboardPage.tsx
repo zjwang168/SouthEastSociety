@@ -22,6 +22,7 @@ export default function DashboardPage() {
       try {
         const res = await api.get("/auth/me");
         setMe(res.data);
+        localStorage.setItem("user_role", res.data.role);
       } catch (err: any) {
         setError("Not logged in (or token expired).");
         localStorage.removeItem("access_token");
@@ -46,29 +47,26 @@ export default function DashboardPage() {
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <h1 style={{ margin: 0 }}>Dashboard</h1>
         <div style={{ flex: 1 }} />
+
+        <Link to="/change-password" style={secondaryBtn}>
+          Change Password
+        </Link>
+
         <button onClick={logout} style={{ padding: "10px 14px", borderRadius: 8 }}>
           Logout
         </button>
       </div>
 
       <div style={{ marginTop: 16, background: "#f6f6f6", padding: 16, borderRadius: 12 }}>
-        <div>
-          <b>User:</b> {me.username}
-        </div>
-        <div>
-          <b>Role:</b> {me.role}
-        </div>
-        <div>
-          <b>Active:</b> {String(me.is_active)}
-        </div>
+        <div><b>User:</b> {me.username}</div>
+        <div><b>Role:</b> {me.role}</div>
+        <div><b>Active:</b> {String(me.is_active)}</div>
       </div>
 
-      {/* Quick Actions */}
       <div style={{ marginTop: 18 }}>
         <div style={{ fontWeight: 700, marginBottom: 10 }}>Quick Actions</div>
 
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-          {/* Admin only */}
           {me.role === "admin" && (
             <>
               <Link to="/orders/new" style={primaryBtn}>
@@ -86,10 +84,17 @@ export default function DashboardPage() {
               <Link to="/sms" style={secondaryBtn}>
                 SMS Queue
               </Link>
+
+              <Link to="/audit" style={secondaryBtn}>
+                Audit Log
+              </Link>
+
+              <Link to="/reset-password" style={secondaryBtn}>
+                Reset Staff Password
+              </Link>
             </>
           )}
 
-          {/* Admin + Staff */}
           <Link to="/export" style={secondaryBtn}>
             Export CSV
           </Link>
@@ -97,8 +102,8 @@ export default function DashboardPage() {
 
         <div style={{ marginTop: 10, color: "#666", fontSize: 12 }}>
           {me.role === "admin"
-            ? "Tip: Admin can manage orders, customers, outstanding balances, SMS queue, and export CSV."
-            : "Tip: Staff account is for accounting export and data analysis only."}
+            ? "Admin can manage orders, customers, outstanding balances, SMS queue, audit log, password reset, and exports."
+            : "Staff account is for export and analysis only. Customer phone numbers are hidden."}
         </div>
       </div>
     </div>

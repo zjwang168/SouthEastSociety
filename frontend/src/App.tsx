@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import ProtectedRoute from "./components/ProtectedRoute";
+import RoleProtectedRoute from "./components/RoleProtectedRoute";
 
 import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
@@ -9,14 +10,16 @@ import OutstandingPage from "./pages/OutstandingPage";
 import OrdersCreatePage from "./pages/OrdersCreatePage";
 import SmsQueuePage from "./pages/SmsQueuePage";
 import ExportPage from "./pages/ExportPage";
+import AuditPage from "./pages/AuditPage";
+import ChangePasswordPage from "./pages/ChangePasswordPage";
+import ResetPasswordPage from "./pages/ResetPasswordPage";
 
 export default function App() {
   return (
     <Routes>
-      {/* Public */}
       <Route path="/login" element={<LoginPage />} />
 
-      {/* Protected */}
+      {/* Everyone with token */}
       <Route
         path="/dashboard"
         element={
@@ -27,51 +30,6 @@ export default function App() {
       />
 
       <Route
-        path="/customers"
-        element={
-          <ProtectedRoute>
-            <CustomersPage />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/customers/:id"
-        element={
-          <ProtectedRoute>
-            <CustomerDetailPage />
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/outstanding"
-        element={
-          <ProtectedRoute>
-            <OutstandingPage />
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/orders/new"
-        element={
-          <ProtectedRoute>
-            <OrdersCreatePage />
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/sms"
-        element={
-          <ProtectedRoute>
-            <SmsQueuePage />
-          </ProtectedRoute>
-        }
-      />
-
-      {/* NEW */}
-      <Route
         path="/export"
         element={
           <ProtectedRoute>
@@ -80,9 +38,80 @@ export default function App() {
         }
       />
 
-      {/* Root */}
-      <Route path="/" element={<Navigate to="/dashboard" replace />} />
+      <Route
+        path="/change-password"
+        element={
+          <ProtectedRoute>
+            <ChangePasswordPage />
+          </ProtectedRoute>
+        }
+      />
 
+      {/* Admin only */}
+      <Route
+        path="/customers"
+        element={
+          <RoleProtectedRoute allowed={["admin"]}>
+            <CustomersPage />
+          </RoleProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/customers/:id"
+        element={
+          <RoleProtectedRoute allowed={["admin"]}>
+            <CustomerDetailPage />
+          </RoleProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/outstanding"
+        element={
+          <RoleProtectedRoute allowed={["admin"]}>
+            <OutstandingPage />
+          </RoleProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/orders/new"
+        element={
+          <RoleProtectedRoute allowed={["admin"]}>
+            <OrdersCreatePage />
+          </RoleProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/sms"
+        element={
+          <RoleProtectedRoute allowed={["admin"]}>
+            <SmsQueuePage />
+          </RoleProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/audit"
+        element={
+          <RoleProtectedRoute allowed={["admin"]}>
+            <AuditPage />
+          </RoleProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/reset-password"
+        element={
+          <RoleProtectedRoute allowed={["admin"]}>
+            <ResetPasswordPage />
+          </RoleProtectedRoute>
+        }
+      />
+
+      <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route path="*" element={<div style={{ padding: 24 }}>Not Found</div>} />
     </Routes>
   );
