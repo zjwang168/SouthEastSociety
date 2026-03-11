@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { api } from "../api";
+import { formatEasternTime } from "../utils/time";
 
 type OutstandingRow = {
   customer_id: number;
@@ -44,6 +45,7 @@ export default function OutstandingPage() {
       // token 失效 / 没登录
       if (e?.response?.status === 401) {
         localStorage.removeItem("access_token");
+        localStorage.removeItem("user_role");
         nav("/login");
         return;
       }
@@ -56,6 +58,7 @@ export default function OutstandingPage() {
 
   function logout() {
     localStorage.removeItem("access_token");
+    localStorage.removeItem("user_role");
     nav("/login");
   }
 
@@ -87,14 +90,13 @@ export default function OutstandingPage() {
         customer_id: smsTarget.customer_id,
         phone_number: smsPhone.trim(),
         message: smsMessage.trim(),
-        // scheduled_for: optional (backend defaults to today)
-        // order_id: optional (not needed for outstanding reminder)
       });
       closeSms();
       alert("✅ SMS queued for today.");
     } catch (e: any) {
       if (e?.response?.status === 401) {
         localStorage.removeItem("access_token");
+        localStorage.removeItem("user_role");
         nav("/login");
         return;
       }
@@ -174,7 +176,7 @@ export default function OutstandingPage() {
                   <td style={td}>
                     <span style={{ fontWeight: 700 }}>${Number(r.total_outstanding).toFixed(2)}</span>
                   </td>
-                  <td style={td}>{new Date(r.last_order_at).toLocaleString()}</td>
+                  <td style={td}>{formatEasternTime(r.last_order_at)}</td>
                   <td style={td}>
                     <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                       <Link

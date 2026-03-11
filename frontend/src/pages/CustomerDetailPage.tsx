@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import type { CustomerWithPhones, PhoneOut, OrderOut } from "../types";
+import { formatEasternTime } from "../utils/time";
 
 export default function CustomerDetailPage() {
   const nav = useNavigate();
@@ -63,6 +64,7 @@ export default function CustomerDetailPage() {
         // token 失效就踢回登录
         if (e?.response?.status === 401) {
           localStorage.removeItem("access_token");
+          localStorage.removeItem("user_role");
           nav("/login");
         }
       } finally {
@@ -76,6 +78,7 @@ export default function CustomerDetailPage() {
 
   function logout() {
     localStorage.removeItem("access_token");
+    localStorage.removeItem("user_role");
     nav("/login");
   }
 
@@ -117,7 +120,6 @@ export default function CustomerDetailPage() {
     if (!confirm("Delete this phone?")) return;
     setError(null);
     try {
-      // ⚠️ 这里假设你的后端有这个 endpoint（你现在 UI 上 delete 已经能用，说明你那边应该就是类似路径）
       await api.delete(`/customers/${customerId}/phones/${phoneId}`);
       await refreshCustomer();
     } catch (e: any) {
@@ -151,11 +153,10 @@ export default function CustomerDetailPage() {
         customer_id: customerId,
         phone_number_used: orderPhone.trim(),
         amount: a,
-        paid_amount: p, // 允许 undefined，让后端默认 paid=amount
+        paid_amount: p,
         note: note.trim() ? note.trim() : null,
       });
 
-      // 刷新 outstanding/sms 之类（你后端应该会在创建 order 时生成 sms queue）
       await refreshOrders();
     } catch (e: any) {
       const msg = e?.response?.data?.detail ?? e?.message ?? "Failed to create order";
@@ -196,7 +197,7 @@ export default function CustomerDetailPage() {
         <div style={row}><b>Nickname:</b> {customer.nickname ?? "-"}</div>
         <div style={row}><b>Status:</b> {customer.status}</div>
         <div style={{ color: "#666", marginTop: 6 }}>
-          Created: {new Date(customer.created_at).toLocaleString()} · Updated: {new Date(customer.updated_at).toLocaleString()}
+          Created: {formatEasternTime(customer.created_at)} · Updated: {formatEasternTime(customer.updated_at)}
         </div>
       </div>
 
@@ -257,7 +258,7 @@ export default function CustomerDetailPage() {
                     <td style={td}>{p.phone_number}</td>
                     <td style={td}>{p.is_primary ? <span style={pillGreen}>Primary</span> : "-"}</td>
                     <td style={td}>{p.sms_enabled ? "On" : "Off"}</td>
-                    <td style={td}>{new Date(p.created_at).toLocaleString()}</td>
+                    <td style={td}>{formatEasternTime(p.created_at)}</td>
                     <td style={td}>
                       <button onClick={() => onDeletePhone(p.id)} style={btnSecondary}>
                         Delete
@@ -350,7 +351,7 @@ export default function CustomerDetailPage() {
                       <td style={td}>${o.paid_amount.toFixed(2)}</td>
                       <td style={td}>{outstanding > 0 ? <b>${outstanding.toFixed(2)}</b> : "$0.00"}</td>
                       <td style={td}>{o.points_earned}</td>
-                      <td style={td}>{new Date(o.created_at).toLocaleString()}</td>
+                      <td style={td}>{formatEasternTime(o.created_at)}</td>
                       <td style={td}>{o.note ?? "-"}</td>
                     </tr>
                   );

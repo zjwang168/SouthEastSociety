@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import type { CustomerWithPhones } from "../types";
+import { formatEasternTime } from "../utils/time";
 
 export default function CustomersPage() {
   const nav = useNavigate();
@@ -23,7 +24,7 @@ export default function CustomersPage() {
     try {
       const params: Record<string, string> = {};
 
-      // 兼容你现在页面的单输入搜索：
+      // 兼容现在页面的单输入搜索：
       // 纯数字/像手机号 → 走 phone
       // 其他 → 走 nickname
       if (query && query.trim()) {
@@ -222,7 +223,7 @@ export default function CustomersPage() {
                   <td style={td}>{c.nickname ?? "-"}</td>
                   <td style={td}>{c.status}</td>
                   <td style={td}>{c.phones?.length ?? 0}</td>
-                  <td style={td}>{new Date(c.created_at).toLocaleString()}</td>
+                  <td style={td}>{formatEasternTime(c.created_at)}</td>
                 </tr>
               ))
             )}

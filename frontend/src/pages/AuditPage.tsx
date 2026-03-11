@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api";
+import { formatEasternTime } from "../utils/time";
 
 type AuditRow = {
   id: number;
@@ -95,9 +96,7 @@ export default function AuditPage() {
         </button>
       </div>
 
-      {error && (
-        <div style={errorBox}>{error}</div>
-      )}
+      {error && <div style={errorBox}>{error}</div>}
 
       <div style={{ border: "1px solid #eee", borderRadius: 12, overflow: "hidden" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -121,7 +120,7 @@ export default function AuditPage() {
             ) : (
               rows.map((r) => (
                 <tr key={r.id} style={{ borderTop: "1px solid #eee", verticalAlign: "top" }}>
-                  <td style={td}>{new Date(r.created_at).toLocaleString()}</td>
+                  <td style={td}>{formatEasternTime(r.created_at)}</td>
                   <td style={td}>{r.actor_user_id}</td>
                   <td style={td}>{r.action}</td>
                   <td style={td}>

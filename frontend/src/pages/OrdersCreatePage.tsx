@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import type { CustomerWithPhones } from "../types";
+import { formatEasternTime } from "../utils/time";
 
 type OrderOut = {
   id: number;
@@ -69,6 +70,7 @@ export default function OrdersCreatePage() {
     } catch (e: any) {
       if (e?.response?.status === 401) {
         localStorage.removeItem("access_token");
+        localStorage.removeItem("user_role");
         nav("/login");
         return;
       }
@@ -123,12 +125,10 @@ export default function OrdersCreatePage() {
     try {
       const res = await api.post<OrderOut>("/orders", payload);
       setSuccess(res.data);
-
-      // convenient: if user didn't type paid_amount, we can also reflect it in UI
-      // (not required, because API response includes actual paid_amount)
     } catch (e: any) {
       if (e?.response?.status === 401) {
         localStorage.removeItem("access_token");
+        localStorage.removeItem("user_role");
         nav("/login");
         return;
       }
@@ -141,6 +141,7 @@ export default function OrdersCreatePage() {
 
   function logout() {
     localStorage.removeItem("access_token");
+    localStorage.removeItem("user_role");
     nav("/login");
   }
 
@@ -194,6 +195,9 @@ export default function OrdersCreatePage() {
           <div style={{ fontSize: 14 }}>
             Order #{success.id} — Amount ${Number(success.amount).toFixed(2)} — Paid $
             {Number(success.paid_amount).toFixed(2)} — Points {success.points_earned}
+          </div>
+          <div style={{ fontSize: 13, marginTop: 6 }}>
+            Created at: {formatEasternTime(success.created_at)}
           </div>
           <div style={{ marginTop: 8 }}>
             <Link to={`/customers/${success.customer_id}`} style={linkStyle}>
