@@ -46,9 +46,46 @@ def _mask_phone(phone: str | None) -> str:
 
 
 def _to_eastern_string(dt: datetime) -> str:
-    # 当前数据库里的时间基本是 UTC naive
     dt_utc = dt.replace(tzinfo=UTC)
     return dt_utc.astimezone(ET).strftime("%Y-%m-%d %I:%M:%S %p")
+
+
+def _find_customer_by_phone(db: Session, phone_number: str) -> Customer | None:
+    phone_row = (
+        db.query(CustomerPhone)
+        .filter(CustomerPhone.phone_number == phone_number)
+        .first()
+    )
+    if not phone_row:
+        return None
+
+    return (
+        db.query(Customer)
+        .filter(Customer.id == phone_row.customer_id)
+        .first()
+    )
+
+
+def _create_customer_with_phone(
+    db: Session,
+    phone_number: str,
+    nickname: str | None,
+) -> Customer:
+    c = Customer(nickname=nickname.strip() if nickname and nickname.strip() else None)
+    db.add(c)
+    db.commit()
+    db.refresh(c)
+
+    p = CustomerPhone(
+        customer_id=c.id,
+        phone_number=phone_number,
+        is_primary=True,
+        sms_enabled=True,
+    )
+    db.add(p)
+    db.commit()
+
+    return c
 
 
 @router.post("", response_model=OrderOut)
@@ -57,9 +94,22 @@ def create_order(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user_from_header),
 ):
-    c = db.query(Customer).filter(Customer.id == payload.customer_id).first()
+    phone_number = payload.phone_number_used.strip()
+    if not phone_number:
+        raise HTTPException(status_code=400, detail="phone_number_used is required")
+
+    # 1) 先按手机号找老客
+    c = _find_customer_by_phone(db, phone_number)
+
+    # 2) 没找到就自动建新客 + phone
+    created_new_customer = False
     if not c:
-        raise HTTPException(status_code=404, detail="Customer not found")
+        c = _create_customer_with_phone(
+            db=db,
+            phone_number=phone_number,
+            nickname=payload.nickname,
+        )
+        created_new_customer = True
 
     paid_amount = payload.paid_amount if payload.paid_amount is not None else payload.amount
 
@@ -69,8 +119,8 @@ def create_order(
     points = calc_points_earned(payload.amount)
 
     o = Order(
-        customer_id=payload.customer_id,
-        phone_number_used=payload.phone_number_used,
+        customer_id=c.id,
+        phone_number_used=phone_number,
         amount=payload.amount,
         paid_amount=paid_amount,
         points_earned=points,
@@ -95,6 +145,8 @@ def create_order(
             "paid_amount": float(o.paid_amount),
             "points_earned": o.points_earned,
             "note": o.note,
+            "created_new_customer": created_new_customer,
+            "customer_nickname": c.nickname,
         },
     )
     db.commit()
