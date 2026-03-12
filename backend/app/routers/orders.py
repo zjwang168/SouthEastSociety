@@ -47,7 +47,7 @@ def _mask_phone(phone: str | None) -> str:
 
 def _to_eastern_string(dt: datetime) -> str:
     dt_utc = dt.replace(tzinfo=UTC)
-    return dt_utc.astimezone(ET).strftime("%Y-%m-%d %I:%M:%S %p")
+    return dt_utc.astimezone(ET).strftime("%Y-%m-%d %I:%M %p")
 
 
 def _find_customer_by_phone(db: Session, phone_number: str) -> Customer | None:
@@ -98,10 +98,8 @@ def create_order(
     if not phone_number:
         raise HTTPException(status_code=400, detail="phone_number_used is required")
 
-    # 1) 先按手机号找老客
     c = _find_customer_by_phone(db, phone_number)
 
-    # 2) 没找到就自动建新客 + phone
     created_new_customer = False
     if not c:
         c = _create_customer_with_phone(
@@ -324,6 +322,44 @@ def list_outstanding_customers(
             last_order_at=r.last_order_at,
         )
         for r in rows
+    ]
+
+
+@router.get("/preview")
+def preview_orders(
+    start: str | None = None,
+    end: str | None = None,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user_from_header),
+):
+    q = db.query(Order)
+
+    def parse_dt(s: str) -> datetime:
+        return datetime.fromisoformat(s)
+
+    if start:
+        q = q.filter(Order.created_at >= parse_dt(start))
+    if end:
+        q = q.filter(Order.created_at <= parse_dt(end))
+
+    limit = max(1, min(limit, 100))
+
+    orders = q.order_by(Order.created_at.desc()).limit(limit).all()
+
+    return [
+        {
+            "created_at": _to_eastern_string(o.created_at),
+            "order_id": o.id,
+            "customer_id": o.customer_id,
+            "phone_number_used": o.phone_number_used if user.role.value == "admin" else _mask_phone(o.phone_number_used),
+            "amount": float(o.amount),
+            "paid_amount": float(o.paid_amount),
+            "points_earned": o.points_earned,
+            "operator_user_id": o.operator_user_id,
+            "note": o.note,
+        }
+        for o in orders
     ]
 
 
