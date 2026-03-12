@@ -4,6 +4,23 @@ import { api } from "../api";
 import type { CustomerWithPhones, PhoneOut, OrderOut } from "../types";
 import { formatEasternTime } from "../utils/time";
 
+type PointsSummary = {
+  customer_id: number;
+  total_points_earned: number;
+  total_points_redeemed: number;
+  available_points: number;
+};
+
+type PointsRedemptionOut = {
+  id: number;
+  customer_id: number;
+  points_used: number;
+  gift_name: string | null;
+  note: string | null;
+  operator_user_id: number;
+  created_at: string;
+};
+
 export default function CustomerDetailPage() {
   const nav = useNavigate();
   const params = useParams();
@@ -11,6 +28,8 @@ export default function CustomerDetailPage() {
 
   const [customer, setCustomer] = useState<CustomerWithPhones | null>(null);
   const [orders, setOrders] = useState<OrderOut[]>([]);
+  const [pointsSummary, setPointsSummary] = useState<PointsSummary | null>(null);
+  const [redemptions, setRedemptions] = useState<PointsRedemptionOut[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -26,6 +45,13 @@ export default function CustomerDetailPage() {
   const [paidAmount, setPaidAmount] = useState<string>("80");
   const [note, setNote] = useState<string>("OWE $20");
   const [creatingOrder, setCreatingOrder] = useState(false);
+
+  // Redeem points
+  const [redeemPoints, setRedeemPoints] = useState<string>("");
+  const [giftName, setGiftName] = useState<string>("");
+  const [redeemNote, setRedeemNote] = useState<string>("");
+  const [redeeming, setRedeeming] = useState(false);
+  const [redeemSuccess, setRedeemSuccess] = useState<PointsRedemptionOut | null>(null);
 
   const phones: PhoneOut[] = customer?.phones ?? [];
 
@@ -45,23 +71,29 @@ export default function CustomerDetailPage() {
       setLoading(true);
       setError(null);
       try {
-        const cRes = await api.get<CustomerWithPhones>(`/customers/${customerId}`);
+        const [cRes, oRes, pRes, rRes] = await Promise.all([
+          api.get<CustomerWithPhones>(`/customers/${customerId}`),
+          api.get<OrderOut[]>("/orders", {
+            params: { customer_id: customerId, limit: 200 },
+          }),
+          api.get<PointsSummary>(`/customers/${customerId}/points-summary`),
+          api.get<PointsRedemptionOut[]>(`/customers/${customerId}/redemptions`),
+        ]);
+
         setCustomer(cRes.data);
-
-        const oRes = await api.get<OrderOut[]>("/orders", {
-          params: { customer_id: customerId, limit: 200 },
-        });
         setOrders(oRes.data);
+        setPointsSummary(pRes.data);
+        setRedemptions(rRes.data);
 
-        // 默认订单手机号：优先用 primary phone
         if (!orderPhone) {
-          setOrderPhone(primaryPhone || cRes.data.phones?.[0]?.phone_number || "");
+          const primary = cRes.data.phones?.find((p) => p.is_primary)?.phone_number;
+          const first = cRes.data.phones?.[0]?.phone_number;
+          setOrderPhone(primary || first || "");
         }
       } catch (e: any) {
         const msg = e?.response?.data?.detail ?? e?.message ?? "Failed to load customer";
         setError(String(msg));
 
-        // token 失效就踢回登录
         if (e?.response?.status === 401) {
           localStorage.removeItem("access_token");
           localStorage.removeItem("user_role");
@@ -92,6 +124,16 @@ export default function CustomerDetailPage() {
       params: { customer_id: customerId, limit: 200 },
     });
     setOrders(oRes.data);
+  }
+
+  async function refreshPointsSummary() {
+    const pRes = await api.get<PointsSummary>(`/customers/${customerId}/points-summary`);
+    setPointsSummary(pRes.data);
+  }
+
+  async function refreshRedemptions() {
+    const rRes = await api.get<PointsRedemptionOut[]>(`/customers/${customerId}/redemptions`);
+    setRedemptions(rRes.data);
   }
 
   async function onAddPhone() {
@@ -150,7 +192,6 @@ export default function CustomerDetailPage() {
     setError(null);
     try {
       await api.post("/orders", {
-        customer_id: customerId,
         phone_number_used: orderPhone.trim(),
         amount: a,
         paid_amount: p,
@@ -158,6 +199,7 @@ export default function CustomerDetailPage() {
       });
 
       await refreshOrders();
+      await refreshPointsSummary();
     } catch (e: any) {
       const msg = e?.response?.data?.detail ?? e?.message ?? "Failed to create order";
       setError(String(msg));
@@ -166,8 +208,44 @@ export default function CustomerDetailPage() {
     }
   }
 
+  async function onRedeemPoints() {
+    setError(null);
+    setRedeemSuccess(null);
+
+    const pts = Number(redeemPoints);
+    if (!Number.isFinite(pts) || pts <= 0) {
+      setError("Points to redeem must be a positive number.");
+      return;
+    }
+
+    setRedeeming(true);
+    try {
+      const res = await api.post<PointsRedemptionOut>(
+        `/customers/${customerId}/redeem-points`,
+        {
+          points_used: pts,
+          gift_name: giftName.trim() ? giftName.trim() : null,
+          note: redeemNote.trim() ? redeemNote.trim() : null,
+        }
+      );
+
+      setRedeemSuccess(res.data);
+      setRedeemPoints("");
+      setGiftName("");
+      setRedeemNote("");
+
+      await refreshPointsSummary();
+      await refreshRedemptions();
+    } catch (e: any) {
+      const msg = e?.response?.data?.detail ?? e?.message ?? "Failed to redeem points";
+      setError(String(msg));
+    } finally {
+      setRedeeming(false);
+    }
+  }
+
   if (loading) return <div style={{ padding: 24 }}>Loading...</div>;
-  if (error) return <div style={{ padding: 24, color: "#b00020" }}>{error}</div>;
+  if (error && !customer) return <div style={{ padding: 24, color: "#b00020" }}>{error}</div>;
   if (!customer) return <div style={{ padding: 24 }}>Not found.</div>;
 
   return (
@@ -191,13 +269,130 @@ export default function CustomerDetailPage() {
         </div>
       )}
 
-      {/* Customer summary */}
       <div style={{ marginTop: 16, background: "#f6f6f6", padding: 16, borderRadius: 12 }}>
         <div style={row}><b>ID:</b> {customer.id}</div>
         <div style={row}><b>Nickname:</b> {customer.nickname ?? "-"}</div>
         <div style={row}><b>Status:</b> {customer.status}</div>
         <div style={{ color: "#666", marginTop: 6 }}>
           Created: {formatEasternTime(customer.created_at)} · Updated: {formatEasternTime(customer.updated_at)}
+        </div>
+      </div>
+
+      {/* Points summary */}
+      <div style={{ marginTop: 18, border: "1px solid #eee", borderRadius: 12, padding: 16 }}>
+        <h2 style={{ marginTop: 0, fontSize: 42 }}>Points Summary</h2>
+
+        {pointsSummary ? (
+          <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
+            <div style={summaryCard}>
+              <div style={summaryLabel}>Total Earned</div>
+              <div style={summaryValue}>{pointsSummary.total_points_earned}</div>
+            </div>
+
+            <div style={summaryCard}>
+              <div style={summaryLabel}>Total Redeemed</div>
+              <div style={summaryValue}>{pointsSummary.total_points_redeemed}</div>
+            </div>
+
+            <div style={summaryCard}>
+              <div style={summaryLabel}>Available</div>
+              <div style={summaryValue}>{pointsSummary.available_points}</div>
+            </div>
+          </div>
+        ) : (
+          <div style={{ color: "#666" }}>No points summary available.</div>
+        )}
+
+        <div style={{ marginTop: 18, borderTop: "1px solid #eee", paddingTop: 16 }}>
+          <h3 style={{ marginTop: 0, marginBottom: 10 }}>Redeem Points</h3>
+
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+            <div style={{ width: 160 }}>
+              <div style={label}>Points to use</div>
+              <input
+                value={redeemPoints}
+                onChange={(e) => setRedeemPoints(e.target.value)}
+                placeholder="e.g. 200"
+                style={input}
+              />
+            </div>
+
+            <div style={{ minWidth: 260 }}>
+              <div style={label}>Gift name (optional)</div>
+              <input
+                value={giftName}
+                onChange={(e) => setGiftName(e.target.value)}
+                placeholder="e.g. Tea Gift Box"
+                style={input}
+              />
+            </div>
+
+            <div style={{ minWidth: 320, flex: 1 }}>
+              <div style={label}>Note (optional)</div>
+              <input
+                value={redeemNote}
+                onChange={(e) => setRedeemNote(e.target.value)}
+                placeholder="e.g. Redeemed in store"
+                style={input}
+              />
+            </div>
+
+            <button onClick={onRedeemPoints} disabled={redeeming} style={btn}>
+              {redeeming ? "Redeeming..." : "Redeem"}
+            </button>
+          </div>
+
+          {redeemSuccess && (
+            <div
+              style={{
+                marginTop: 12,
+                background: "#e9fff1",
+                color: "#14532d",
+                padding: 12,
+                borderRadius: 8,
+              }}
+            >
+              ✅ Redeemed {redeemSuccess.points_used} points
+              {redeemSuccess.gift_name ? ` for ${redeemSuccess.gift_name}` : ""}.
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Redemption history */}
+      <div style={{ marginTop: 18 }}>
+        <h2 style={{ fontSize: 42, marginBottom: 8 }}>Redemption History</h2>
+        <div style={{ border: "1px solid #eee", borderRadius: 12, overflow: "hidden" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead style={{ background: "#fafafa" }}>
+              <tr>
+                <th style={th}>Time</th>
+                <th style={th}>Points Used</th>
+                <th style={th}>Gift</th>
+                <th style={th}>Note</th>
+                <th style={th}>Operator</th>
+              </tr>
+            </thead>
+            <tbody>
+              {redemptions.length === 0 ? (
+                <tr>
+                  <td colSpan={5} style={{ padding: 16, color: "#666" }}>
+                    No redemptions yet.
+                  </td>
+                </tr>
+              ) : (
+                redemptions.map((r) => (
+                  <tr key={r.id} style={{ borderTop: "1px solid #eee" }}>
+                    <td style={td}>{formatEasternTime(r.created_at)}</td>
+                    <td style={td}>{r.points_used}</td>
+                    <td style={td}>{r.gift_name ?? "-"}</td>
+                    <td style={td}>{r.note ?? "-"}</td>
+                    <td style={td}>{r.operator_user_id}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
 
@@ -276,7 +471,6 @@ export default function CustomerDetailPage() {
       <div style={{ marginTop: 26 }}>
         <h2 style={{ fontSize: 42, marginBottom: 8 }}>Orders</h2>
 
-        {/* Create order */}
         <div style={{ border: "1px solid #eee", borderRadius: 12, padding: 16 }}>
           <h3 style={{ marginTop: 0, marginBottom: 10 }}>Create Order</h3>
 
@@ -318,7 +512,6 @@ export default function CustomerDetailPage() {
           </div>
         </div>
 
-        {/* Orders table */}
         <div style={{ marginTop: 12, border: "1px solid #eee", borderRadius: 12, overflow: "hidden" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead style={{ background: "#fafafa" }}>
@@ -413,4 +606,23 @@ const pillGreen: React.CSSProperties = {
   color: "#1b6b1b",
   fontWeight: 600,
   fontSize: 12,
+};
+
+const summaryCard: React.CSSProperties = {
+  minWidth: 180,
+  padding: 14,
+  borderRadius: 12,
+  border: "1px solid #e5e7eb",
+  background: "#fafafa",
+};
+
+const summaryLabel: React.CSSProperties = {
+  fontSize: 12,
+  color: "#666",
+  marginBottom: 6,
+};
+
+const summaryValue: React.CSSProperties = {
+  fontSize: 28,
+  fontWeight: 800,
 };

@@ -65,6 +65,7 @@ class Customer(Base):
 
     phones = relationship("CustomerPhone", back_populates="customer", cascade="all, delete-orphan")
     orders = relationship("Order", back_populates="customer")
+    redemptions = relationship("PointsRedemption", back_populates="customer")
 
 
 class CustomerPhone(Base):
@@ -100,6 +101,22 @@ class Order(Base):
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     customer = relationship("Customer", back_populates="orders")
+
+
+class PointsRedemption(Base):
+    __tablename__ = "points_redemptions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), index=True)
+
+    points_used: Mapped[int] = mapped_column(Integer)
+    gift_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    operator_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    customer = relationship("Customer", back_populates="redemptions")
 
 
 class SmsLog(Base):

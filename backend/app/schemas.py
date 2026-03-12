@@ -97,6 +97,30 @@ class OrderAmountsUpdate(BaseModel):
     paid_amount: float = Field(..., ge=0)
 
 
+# ---------- Points / Rewards ----------
+class PointsSummaryOut(BaseModel):
+    customer_id: int
+    total_points_earned: int
+    total_points_redeemed: int
+    available_points: int
+
+
+class PointsRedemptionCreate(BaseModel):
+    points_used: int = Field(..., gt=0)
+    gift_name: Optional[str] = None
+    note: Optional[str] = None
+
+
+class PointsRedemptionOut(BaseModel):
+    id: int
+    customer_id: int
+    points_used: int
+    gift_name: Optional[str] = None
+    note: Optional[str] = None
+    operator_user_id: int
+    created_at: datetime
+
+
 # ---------- Stats / Outstanding ----------
 class SummaryStats(BaseModel):
     total_orders: int
