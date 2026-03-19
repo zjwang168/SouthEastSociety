@@ -38,6 +38,12 @@ class SmsQueueStatus(str, enum.Enum):
     failed = "failed"
 
 
+class PaymentMethod(str, enum.Enum):
+    cash = "cash"
+    venmo = "venmo"
+    zelle = "zelle"
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -95,6 +101,15 @@ class Order(Base):
     points_earned: Mapped[int] = mapped_column(Integer)
     points_used: Mapped[int] = mapped_column(Integer, default=0)
 
+    payment_method: Mapped[PaymentMethod | None] = mapped_column(
+        Enum(PaymentMethod),
+        nullable=True,
+    )
+
+    tier_rate: Mapped[float | None] = mapped_column(Numeric(5, 4), nullable=True)
+    cash_value: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
+    is_manual_tier: Mapped[bool] = mapped_column(Boolean, default=False)
+
     operator_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -148,7 +163,7 @@ class SmsQueue(Base):
     phone_number: Mapped[str] = mapped_column(String(30))
     message: Mapped[str] = mapped_column(Text)
 
-    scheduled_for: Mapped[datetime] = mapped_column(Date, index=True)  # Date-only
+    scheduled_for: Mapped[datetime] = mapped_column(Date, index=True)
     status: Mapped[SmsQueueStatus] = mapped_column(Enum(SmsQueueStatus), default=SmsQueueStatus.pending)
 
     sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -162,8 +177,8 @@ class AuditLog(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     actor_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
-    action: Mapped[str] = mapped_column(String(20))  # create/update/delete
-    entity_type: Mapped[str] = mapped_column(String(30))  # order/customer/phone/user
+    action: Mapped[str] = mapped_column(String(20))
+    entity_type: Mapped[str] = mapped_column(String(30))
     entity_id: Mapped[str] = mapped_column(String(64))
     before_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     after_json: Mapped[str | None] = mapped_column(Text, nullable=True)

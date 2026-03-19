@@ -9,8 +9,12 @@ type OrderOut = {
   phone_number_used: string;
   amount: number;
   paid_amount: number;
+  payment_method: string | null;
   points_earned: number;
   points_used: number;
+  tier_rate: number | null;
+  cash_value: number | null;
+  is_manual_tier: boolean;
   operator_user_id: number;
   created_at: string;
   note: string | null;
@@ -19,14 +23,14 @@ type OrderOut = {
 export default function OrdersCreatePage() {
   const nav = useNavigate();
 
-  // Form fields
   const [phoneNumberUsed, setPhoneNumberUsed] = useState<string>("");
   const [nickname, setNickname] = useState<string>("");
   const [amount, setAmount] = useState<string>("");
   const [paidAmount, setPaidAmount] = useState<string>("");
+  const [paymentMethod, setPaymentMethod] = useState<string>("cash");
+  const [manualCredits, setManualCredits] = useState<string>("");
   const [note, setNote] = useState<string>("");
 
-  // Submit
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<OrderOut | null>(null);
@@ -34,6 +38,8 @@ export default function OrdersCreatePage() {
   const parsedAmount = Number(amount);
   const parsedPaidAmount =
     paidAmount.trim() === "" ? null : Number(paidAmount);
+  const parsedManualCredits =
+    manualCredits.trim() === "" ? null : Number(manualCredits);
 
   async function submit() {
     setError(null);
@@ -57,20 +63,34 @@ export default function OrdersCreatePage() {
       return;
     }
 
+    if (parsedAmount > 5000) {
+      if (
+        parsedManualCredits === null ||
+        !Number.isFinite(parsedManualCredits) ||
+        parsedManualCredits < 0
+      ) {
+        setError("Manual credits are required for donation amounts above 5000.");
+        return;
+      }
+    }
+
     const payload: any = {
       phone_number_used: phoneNumberUsed.trim(),
       amount: parsedAmount,
+      payment_method: paymentMethod,
       note: note.trim() ? note.trim() : null,
     };
 
-    // nickname only helps when it's a new customer
     if (nickname.trim()) {
       payload.nickname = nickname.trim();
     }
 
-    // optional paid amount
     if (parsedPaidAmount !== null) {
       payload.paid_amount = parsedPaidAmount;
+    }
+
+    if (parsedAmount > 5000) {
+      payload.manual_credits = parsedManualCredits;
     }
 
     setSubmitting(true);
@@ -78,11 +98,10 @@ export default function OrdersCreatePage() {
       const res = await api.post<OrderOut>("/orders", payload);
       setSuccess(res.data);
 
-      // 可选：成功后保留手机号，方便连续下单
-      // 清空其他字段
       setNickname("");
       setAmount("");
       setPaidAmount("");
+      setManualCredits("");
       setNote("");
     } catch (e: any) {
       if (e?.response?.status === 401) {
@@ -175,10 +194,11 @@ export default function OrdersCreatePage() {
             ✅ Order created!
           </div>
           <div style={{ fontSize: 14 }}>
-            Order #{success.id} — Amount $
+            Order #{success.id} — Donation $
             {Number(success.amount).toFixed(2)} — Paid $
-            {Number(success.paid_amount).toFixed(2)} — Points{" "}
+            {Number(success.paid_amount).toFixed(2)} — Credits{" "}
             {success.points_earned}
+            {success.is_manual_tier ? " (manual)" : ""}
           </div>
           <div style={{ fontSize: 13, marginTop: 6 }}>
             Created at: {formatEasternTime(success.created_at)}
@@ -239,14 +259,14 @@ export default function OrdersCreatePage() {
           }}
         >
           <div style={field}>
-            <label style={label}>Amount</label>
+            <label style={label}>Donation Amount</label>
             <input
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               placeholder="e.g. 100"
               style={input}
             />
-            <div style={hint}>Total order amount.</div>
+            <div style={hint}>Total donation amount.</div>
           </div>
 
           <div style={field}>
@@ -262,6 +282,34 @@ export default function OrdersCreatePage() {
             </div>
           </div>
         </div>
+
+        <div style={field}>
+          <label style={label}>Payment Method</label>
+          <select
+            value={paymentMethod}
+            onChange={(e) => setPaymentMethod(e.target.value)}
+            style={{ ...input, height: 42 }}
+          >
+            <option value="cash">Cash</option>
+            <option value="venmo">Venmo</option>
+            <option value="zelle">Zelle</option>
+          </select>
+        </div>
+
+        {parsedAmount > 5000 && (
+          <div style={field}>
+            <label style={label}>Manual Credits</label>
+            <input
+              value={manualCredits}
+              onChange={(e) => setManualCredits(e.target.value)}
+              placeholder="e.g. 200"
+              style={input}
+            />
+            <div style={hint}>
+              Required for donation amounts above 5000.
+            </div>
+          </div>
+        )}
 
         <div style={field}>
           <label style={label}>Note (optional)</label>

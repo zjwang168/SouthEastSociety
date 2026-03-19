@@ -1,35 +1,46 @@
+# ------------------------
 # Python
+# ------------------------
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
 
-# Virtual environment
+# Virtual environments
 .venv/
 venv/
+env/
 
-# Local DB
+# Database
 *.db
+*.sqlite3
 
-# Mac
-.DS_Store
-
-# VS Code
-.vscode/
-
-backend/.venv/
-backend/dev.db
-backend/*.db
-__pycache__/
-*.pyc
+# Env files
 .env
 
-# Node / Frontend
+# ------------------------
+# Mac / OS
+# ------------------------
+.DS_Store
+
+# ------------------------
+# VS Code
+# ------------------------
+.vscode/
+
+# ------------------------
+# Frontend (Node)
+# ------------------------
 node_modules/
 dist/
 build/
 frontend/node_modules/
 frontend/dist/
 
-frontend/.vite/
+# Vite
 .vite/
+frontend/.vite/
+
+# ------------------------
+# Custom (project-specific)
+# ------------------------
+create_staff.py   # 临时脚本（建议忽略）
+backend/create_staff.py

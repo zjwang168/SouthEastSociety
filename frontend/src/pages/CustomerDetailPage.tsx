@@ -1,10 +1,44 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
-import type { CustomerWithPhones, PhoneOut, OrderOut } from "../types";
 import { formatEasternTime } from "../utils/time";
 
-type PointsSummary = {
+type PhoneOut = {
+  id: number;
+  customer_id: number;
+  phone_number: string;
+  is_primary: boolean;
+  sms_enabled: boolean;
+  created_at: string;
+};
+
+type CustomerWithPhones = {
+  id: number;
+  nickname: string | null;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  phones: PhoneOut[];
+};
+
+type OrderOut = {
+  id: number;
+  customer_id: number;
+  phone_number_used: string;
+  amount: number;
+  paid_amount: number;
+  payment_method: string | null;
+  points_earned: number;
+  points_used: number;
+  tier_rate: number | null;
+  cash_value: number | null;
+  is_manual_tier: boolean;
+  operator_user_id: number;
+  created_at: string;
+  note: string | null;
+};
+
+type CreditsSummary = {
   customer_id: number;
   total_points_earned: number;
   total_points_redeemed: number;
@@ -28,7 +62,7 @@ export default function CustomerDetailPage() {
 
   const [customer, setCustomer] = useState<CustomerWithPhones | null>(null);
   const [orders, setOrders] = useState<OrderOut[]>([]);
-  const [pointsSummary, setPointsSummary] = useState<PointsSummary | null>(null);
+  const [creditsSummary, setCreditsSummary] = useState<CreditsSummary | null>(null);
   const [redemptions, setRedemptions] = useState<PointsRedemptionOut[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -43,11 +77,13 @@ export default function CustomerDetailPage() {
   const [orderPhone, setOrderPhone] = useState("");
   const [amount, setAmount] = useState<string>("100");
   const [paidAmount, setPaidAmount] = useState<string>("80");
+  const [paymentMethod, setPaymentMethod] = useState<string>("cash");
+  const [manualCredits, setManualCredits] = useState<string>("");
   const [note, setNote] = useState<string>("OWE $20");
   const [creatingOrder, setCreatingOrder] = useState(false);
 
-  // Redeem points
-  const [redeemPoints, setRedeemPoints] = useState<string>("");
+  // Redeem credits
+  const [redeemCredits, setRedeemCredits] = useState<string>("");
   const [giftName, setGiftName] = useState<string>("");
   const [redeemNote, setRedeemNote] = useState<string>("");
   const [redeeming, setRedeeming] = useState(false);
@@ -59,6 +95,10 @@ export default function CustomerDetailPage() {
     const p = phones.find((x) => x.is_primary);
     return p?.phone_number ?? "";
   }, [phones]);
+
+  const totalSpent = useMemo(() => {
+    return orders.reduce((sum, o) => sum + o.amount, 0);
+  }, [orders]);
 
   useEffect(() => {
     if (!Number.isFinite(customerId) || customerId <= 0) {
@@ -76,13 +116,13 @@ export default function CustomerDetailPage() {
           api.get<OrderOut[]>("/orders", {
             params: { customer_id: customerId, limit: 200 },
           }),
-          api.get<PointsSummary>(`/customers/${customerId}/points-summary`),
+          api.get<CreditsSummary>(`/customers/${customerId}/points-summary`),
           api.get<PointsRedemptionOut[]>(`/customers/${customerId}/redemptions`),
         ]);
 
         setCustomer(cRes.data);
         setOrders(oRes.data);
-        setPointsSummary(pRes.data);
+        setCreditsSummary(pRes.data);
         setRedemptions(rRes.data);
 
         if (!orderPhone) {
@@ -126,9 +166,9 @@ export default function CustomerDetailPage() {
     setOrders(oRes.data);
   }
 
-  async function refreshPointsSummary() {
-    const pRes = await api.get<PointsSummary>(`/customers/${customerId}/points-summary`);
-    setPointsSummary(pRes.data);
+  async function refreshCreditsSummary() {
+    const pRes = await api.get<CreditsSummary>(`/customers/${customerId}/points-summary`);
+    setCreditsSummary(pRes.data);
   }
 
   async function refreshRedemptions() {
@@ -178,6 +218,8 @@ export default function CustomerDetailPage() {
 
     const a = Number(amount);
     const p = paidAmount.trim() === "" ? undefined : Number(paidAmount);
+    const manualCreditsValue =
+      manualCredits.trim() === "" ? undefined : Number(manualCredits);
 
     if (!Number.isFinite(a) || a <= 0) {
       setError("Amount must be a positive number.");
@@ -187,6 +229,16 @@ export default function CustomerDetailPage() {
       setError("Paid amount must be >= 0.");
       return;
     }
+    if (a > 5000) {
+      if (
+        manualCreditsValue === undefined ||
+        !Number.isFinite(manualCreditsValue) ||
+        manualCreditsValue < 0
+      ) {
+        setError("Manual credits are required for donation amounts above 5000.");
+        return;
+      }
+    }
 
     setCreatingOrder(true);
     setError(null);
@@ -195,11 +247,14 @@ export default function CustomerDetailPage() {
         phone_number_used: orderPhone.trim(),
         amount: a,
         paid_amount: p,
+        payment_method: paymentMethod,
+        manual_credits: a > 5000 ? manualCreditsValue : null,
         note: note.trim() ? note.trim() : null,
       });
 
       await refreshOrders();
-      await refreshPointsSummary();
+      await refreshCreditsSummary();
+      setManualCredits("");
     } catch (e: any) {
       const msg = e?.response?.data?.detail ?? e?.message ?? "Failed to create order";
       setError(String(msg));
@@ -208,13 +263,13 @@ export default function CustomerDetailPage() {
     }
   }
 
-  async function onRedeemPoints() {
+  async function onRedeemCredits() {
     setError(null);
     setRedeemSuccess(null);
 
-    const pts = Number(redeemPoints);
-    if (!Number.isFinite(pts) || pts <= 0) {
-      setError("Points to redeem must be a positive number.");
+    const credits = Number(redeemCredits);
+    if (!Number.isFinite(credits) || credits <= 0) {
+      setError("Credits to redeem must be a positive number.");
       return;
     }
 
@@ -223,21 +278,21 @@ export default function CustomerDetailPage() {
       const res = await api.post<PointsRedemptionOut>(
         `/customers/${customerId}/redeem-points`,
         {
-          points_used: pts,
+          points_used: credits,
           gift_name: giftName.trim() ? giftName.trim() : null,
           note: redeemNote.trim() ? redeemNote.trim() : null,
         }
       );
 
       setRedeemSuccess(res.data);
-      setRedeemPoints("");
+      setRedeemCredits("");
       setGiftName("");
       setRedeemNote("");
 
-      await refreshPointsSummary();
+      await refreshCreditsSummary();
       await refreshRedemptions();
     } catch (e: any) {
-      const msg = e?.response?.data?.detail ?? e?.message ?? "Failed to redeem points";
+      const msg = e?.response?.data?.detail ?? e?.message ?? "Failed to redeem credits";
       setError(String(msg));
     } finally {
       setRedeeming(false);
@@ -273,45 +328,46 @@ export default function CustomerDetailPage() {
         <div style={row}><b>ID:</b> {customer.id}</div>
         <div style={row}><b>Nickname:</b> {customer.nickname ?? "-"}</div>
         <div style={row}><b>Status:</b> {customer.status}</div>
+        <div style={row}><b>Primary Phone:</b> {primaryPhone || "-"}</div>
         <div style={{ color: "#666", marginTop: 6 }}>
           Created: {formatEasternTime(customer.created_at)} · Updated: {formatEasternTime(customer.updated_at)}
         </div>
       </div>
 
-      {/* Points summary */}
       <div style={{ marginTop: 18, border: "1px solid #eee", borderRadius: 12, padding: 16 }}>
-        <h2 style={{ marginTop: 0, fontSize: 42 }}>Points Summary</h2>
+        <h2 style={{ marginTop: 0, fontSize: 42 }}>Credits Summary</h2>
 
-        {pointsSummary ? (
-          <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
-            <div style={summaryCard}>
-              <div style={summaryLabel}>Total Earned</div>
-              <div style={summaryValue}>{pointsSummary.total_points_earned}</div>
-            </div>
-
-            <div style={summaryCard}>
-              <div style={summaryLabel}>Total Redeemed</div>
-              <div style={summaryValue}>{pointsSummary.total_points_redeemed}</div>
-            </div>
-
-            <div style={summaryCard}>
-              <div style={summaryLabel}>Available</div>
-              <div style={summaryValue}>{pointsSummary.available_points}</div>
-            </div>
+        <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
+          <div style={summaryCard}>
+            <div style={summaryLabel}>Total Spent</div>
+            <div style={summaryValue}>${totalSpent.toFixed(2)}</div>
           </div>
-        ) : (
-          <div style={{ color: "#666" }}>No points summary available.</div>
-        )}
+
+          <div style={summaryCard}>
+            <div style={summaryLabel}>Total Earned Credits</div>
+            <div style={summaryValue}>{creditsSummary?.total_points_earned ?? 0}</div>
+          </div>
+
+          <div style={summaryCard}>
+            <div style={summaryLabel}>Total Redeemed Credits</div>
+            <div style={summaryValue}>{creditsSummary?.total_points_redeemed ?? 0}</div>
+          </div>
+
+          <div style={summaryCard}>
+            <div style={summaryLabel}>Available Credits</div>
+            <div style={summaryValue}>{creditsSummary?.available_points ?? 0}</div>
+          </div>
+        </div>
 
         <div style={{ marginTop: 18, borderTop: "1px solid #eee", paddingTop: 16 }}>
-          <h3 style={{ marginTop: 0, marginBottom: 10 }}>Redeem Points</h3>
+          <h3 style={{ marginTop: 0, marginBottom: 10 }}>Redeem Credits</h3>
 
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
             <div style={{ width: 160 }}>
-              <div style={label}>Points to use</div>
+              <div style={label}>Credits to use</div>
               <input
-                value={redeemPoints}
-                onChange={(e) => setRedeemPoints(e.target.value)}
+                value={redeemCredits}
+                onChange={(e) => setRedeemCredits(e.target.value)}
                 placeholder="e.g. 200"
                 style={input}
               />
@@ -337,7 +393,7 @@ export default function CustomerDetailPage() {
               />
             </div>
 
-            <button onClick={onRedeemPoints} disabled={redeeming} style={btn}>
+            <button onClick={onRedeemCredits} disabled={redeeming} style={btn}>
               {redeeming ? "Redeeming..." : "Redeem"}
             </button>
           </div>
@@ -352,14 +408,13 @@ export default function CustomerDetailPage() {
                 borderRadius: 8,
               }}
             >
-              ✅ Redeemed {redeemSuccess.points_used} points
+              ✅ Redeemed {redeemSuccess.points_used} credits
               {redeemSuccess.gift_name ? ` for ${redeemSuccess.gift_name}` : ""}.
             </div>
           )}
         </div>
       </div>
 
-      {/* Redemption history */}
       <div style={{ marginTop: 18 }}>
         <h2 style={{ fontSize: 42, marginBottom: 8 }}>Redemption History</h2>
         <div style={{ border: "1px solid #eee", borderRadius: 12, overflow: "hidden" }}>
@@ -367,7 +422,7 @@ export default function CustomerDetailPage() {
             <thead style={{ background: "#fafafa" }}>
               <tr>
                 <th style={th}>Time</th>
-                <th style={th}>Points Used</th>
+                <th style={th}>Credits Used</th>
                 <th style={th}>Gift</th>
                 <th style={th}>Note</th>
                 <th style={th}>Operator</th>
@@ -396,7 +451,6 @@ export default function CustomerDetailPage() {
         </div>
       </div>
 
-      {/* Add phone */}
       <div style={{ marginTop: 18, border: "1px solid #eee", borderRadius: 12, padding: 16 }}>
         <h2 style={{ marginTop: 0, fontSize: 42 }}>Add Phone</h2>
         <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
@@ -426,7 +480,6 @@ export default function CustomerDetailPage() {
         </div>
       </div>
 
-      {/* Phones table */}
       <div style={{ marginTop: 18 }}>
         <h2 style={{ fontSize: 42, marginBottom: 8 }}>Phones</h2>
         <div style={{ border: "1px solid #eee", borderRadius: 12, overflow: "hidden" }}>
@@ -467,7 +520,6 @@ export default function CustomerDetailPage() {
         </div>
       </div>
 
-      {/* Orders */}
       <div style={{ marginTop: 26 }}>
         <h2 style={{ fontSize: 42, marginBottom: 8 }}>Orders</h2>
 
@@ -492,7 +544,7 @@ export default function CustomerDetailPage() {
             </div>
 
             <div style={{ width: 160 }}>
-              <div style={label}>Amount</div>
+              <div style={label}>Donation Amount</div>
               <input value={amount} onChange={(e) => setAmount(e.target.value)} style={input} />
             </div>
 
@@ -501,7 +553,32 @@ export default function CustomerDetailPage() {
               <input value={paidAmount} onChange={(e) => setPaidAmount(e.target.value)} style={input} />
             </div>
 
-            <div style={{ minWidth: 300, flex: 1 }}>
+            <div style={{ width: 160 }}>
+              <div style={label}>Payment Method</div>
+              <select
+                value={paymentMethod}
+                onChange={(e) => setPaymentMethod(e.target.value)}
+                style={{ ...input, height: 42 }}
+              >
+                <option value="cash">Cash</option>
+                <option value="venmo">Venmo</option>
+                <option value="zelle">Zelle</option>
+              </select>
+            </div>
+
+            {Number(amount) > 5000 && (
+              <div style={{ width: 160 }}>
+                <div style={label}>Manual Credits</div>
+                <input
+                  value={manualCredits}
+                  onChange={(e) => setManualCredits(e.target.value)}
+                  placeholder="e.g. 200"
+                  style={input}
+                />
+              </div>
+            )}
+
+            <div style={{ minWidth: 220, flex: 1 }}>
               <div style={label}>Note</div>
               <input value={note} onChange={(e) => setNote(e.target.value)} style={input} />
             </div>
@@ -518,10 +595,11 @@ export default function CustomerDetailPage() {
               <tr>
                 <th style={th}>ID</th>
                 <th style={th}>Phone</th>
-                <th style={th}>Amount</th>
+                <th style={th}>Donation</th>
                 <th style={th}>Paid</th>
                 <th style={th}>Outstanding</th>
-                <th style={th}>Points</th>
+                <th style={th}>Method</th>
+                <th style={th}>Credits Earned</th>
                 <th style={th}>Created</th>
                 <th style={th}>Note</th>
               </tr>
@@ -529,7 +607,7 @@ export default function CustomerDetailPage() {
             <tbody>
               {orders.length === 0 ? (
                 <tr>
-                  <td colSpan={8} style={{ padding: 16, color: "#666" }}>
+                  <td colSpan={9} style={{ padding: 16, color: "#666" }}>
                     No orders yet.
                   </td>
                 </tr>
@@ -543,7 +621,15 @@ export default function CustomerDetailPage() {
                       <td style={td}>${o.amount.toFixed(2)}</td>
                       <td style={td}>${o.paid_amount.toFixed(2)}</td>
                       <td style={td}>{outstanding > 0 ? <b>${outstanding.toFixed(2)}</b> : "$0.00"}</td>
-                      <td style={td}>{o.points_earned}</td>
+                      <td style={td}>{o.payment_method ?? "-"}</td>
+                      <td style={td}>
+                        {o.points_earned}
+                        {o.is_manual_tier && (
+                          <span style={{ marginLeft: 6, color: "#888", fontSize: 12 }}>
+                            (manual)
+                          </span>
+                        )}
+                      </td>
                       <td style={td}>{formatEasternTime(o.created_at)}</td>
                       <td style={td}>{o.note ?? "-"}</td>
                     </tr>

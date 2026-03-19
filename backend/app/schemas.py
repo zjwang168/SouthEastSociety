@@ -1,6 +1,6 @@
 from datetime import datetime
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, Dict
 
 
 # ---------- Auth ----------
@@ -72,6 +72,8 @@ class OrderCreate(BaseModel):
     nickname: Optional[str] = None
     amount: float = Field(..., ge=0)
     paid_amount: Optional[float] = Field(default=None, ge=0)
+    payment_method: Optional[str] = "cash"
+    manual_credits: Optional[int] = Field(default=None, ge=0)
     note: Optional[str] = None
 
 
@@ -81,8 +83,12 @@ class OrderOut(BaseModel):
     phone_number_used: str
     amount: float
     paid_amount: float
+    payment_method: Optional[str] = None
     points_earned: int
     points_used: int
+    tier_rate: Optional[float] = None
+    cash_value: Optional[float] = None
+    is_manual_tier: bool = False
     operator_user_id: int
     created_at: datetime
     note: Optional[str] = None
@@ -119,6 +125,15 @@ class PointsRedemptionOut(BaseModel):
     note: Optional[str] = None
     operator_user_id: int
     created_at: datetime
+
+
+# ---------- Reports ----------
+class OrdersSummaryOut(BaseModel):
+    total_receivable: float
+    total_received: float
+    total_outstanding: float
+    total_credits_redeemed: int
+    payment_method_totals: Dict[str, float]
 
 
 # ---------- Stats / Outstanding ----------
