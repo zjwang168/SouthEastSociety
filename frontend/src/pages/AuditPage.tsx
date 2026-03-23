@@ -23,13 +23,11 @@ type Me = {
 export default function AuditPage() {
   const nav = useNavigate();
   const [rows, setRows] = useState<AuditRow[]>([]);
-  const [me, setMe] = useState<Me | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function loadMe() {
     const res = await api.get<Me>("/auth/me");
-    setMe(res.data);
     if (res.data.role !== "admin") {
       nav("/dashboard");
     }
