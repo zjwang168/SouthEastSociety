@@ -12,17 +12,30 @@ type Me = {
   created_at: string;
 };
 
+type DashboardStats = {
+  total_revenue: number;
+  total_credits_issued: number;
+  total_customers: number;
+  total_outstanding: number;
+};
+
 export default function DashboardPage() {
   const nav = useNavigate();
   const [me, setMe] = useState<Me | null>(null);
+  const [stats, setStats] = useState<DashboardStats | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const today = new Date().toISOString().slice(0, 10);
+  const [startDate, setStartDate] = useState<string>(today);
+  const [endDate, setEndDate] = useState<string>(today);
+  const [statsLoading, setStatsLoading] = useState(false);
+
   useEffect(() => {
-    async function load() {
+    async function loadMe() {
       try {
-        const res = await api.get("/auth/me");
-        setMe(res.data);
-        localStorage.setItem("user_role", res.data.role);
+        const meRes = await api.get("/auth/me");
+        setMe(meRes.data);
+        localStorage.setItem("user_role", meRes.data.role);
       } catch (err: any) {
         setError("Not logged in (or token expired).");
         localStorage.removeItem("access_token");
@@ -30,13 +43,53 @@ export default function DashboardPage() {
         nav("/login");
       }
     }
-    load();
+    loadMe();
   }, [nav]);
+
+  useEffect(() => {
+    async function loadStats() {
+      if (!me || me.role !== "admin") return;
+
+      setStatsLoading(true);
+      try {
+        const res = await api.get("/dashboard/stats", {
+          params: {
+            start: `${startDate}T00:00:00`,
+            end: `${endDate}T23:59:59`,
+          },
+        });
+        setStats(res.data);
+      } catch (e) {
+        console.error("Failed to load dashboard stats:", e);
+      } finally {
+        setStatsLoading(false);
+      }
+    }
+
+    loadStats();
+  }, [me, startDate, endDate]);
 
   function logout() {
     localStorage.removeItem("access_token");
     localStorage.removeItem("user_role");
     nav("/login");
+  }
+
+  function setTodayRange() {
+    setStartDate(today);
+    setEndDate(today);
+  }
+
+  function setThisMonthRange() {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, "0");
+    const firstDay = `${year}-${month}-01`;
+    const lastDayDate = new Date(year, now.getMonth() + 1, 0);
+    const lastDay = lastDayDate.toISOString().slice(0, 10);
+
+    setStartDate(firstDay);
+    setEndDate(lastDay);
   }
 
   if (error) return <div style={{ padding: 24 }}>{error}</div>;
@@ -45,7 +98,7 @@ export default function DashboardPage() {
   return (
     <div
       style={{
-        maxWidth: 860,
+        maxWidth: 980,
         margin: "40px auto",
         padding: 24,
         fontFamily: "system-ui",
@@ -148,6 +201,101 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* Stats cards */}
+      {me.role === "admin" && (
+        <div style={{ marginTop: 24 }}>
+          <div
+            style={{
+              fontWeight: 800,
+              fontSize: 18,
+              marginBottom: 12,
+              color: "#14253d",
+            }}
+          >
+            Admin Overview
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              gap: 12,
+              flexWrap: "wrap",
+              marginBottom: 14,
+              alignItems: "flex-end",
+            }}
+          >
+            <div>
+              <div style={filterLabel}>Start Date</div>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                style={filterInput}
+              />
+            </div>
+
+            <div>
+              <div style={filterLabel}>End Date</div>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                style={filterInput}
+              />
+            </div>
+
+            <button onClick={setTodayRange} style={filterBtn}>
+              Today
+            </button>
+
+            <button onClick={setThisMonthRange} style={filterBtn}>
+              This Month
+            </button>
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+              gap: 14,
+            }}
+          >
+            <StatCard
+              title="Total Revenue"
+              value={
+                statsLoading
+                  ? "Loading..."
+                  : `$${Number(stats?.total_revenue ?? 0).toFixed(2)}`
+              }
+            />
+            <StatCard
+              title="Total Credits Issued"
+              value={
+                statsLoading
+                  ? "Loading..."
+                  : String(stats?.total_credits_issued ?? 0)
+              }
+            />
+            <StatCard
+              title="Total Customers"
+              value={
+                statsLoading
+                  ? "Loading..."
+                  : String(stats?.total_customers ?? 0)
+              }
+            />
+            <StatCard
+              title="Outstanding Amount"
+              value={
+                statsLoading
+                  ? "Loading..."
+                  : `$${Number(stats?.total_outstanding ?? 0).toFixed(2)}`
+              }
+            />
+          </div>
+        </div>
+      )}
+
       {/* Account box */}
       <div
         style={{
@@ -229,6 +377,40 @@ export default function DashboardPage() {
   );
 }
 
+function StatCard({ title, value }: { title: string; value: string }) {
+  return (
+    <div
+      style={{
+        background: "#fafafa",
+        border: "1px solid #eceff3",
+        borderRadius: 14,
+        padding: 16,
+      }}
+    >
+      <div
+        style={{
+          fontSize: 12,
+          color: "#667085",
+          marginBottom: 8,
+          fontWeight: 600,
+        }}
+      >
+        {title}
+      </div>
+      <div
+        style={{
+          fontSize: 28,
+          fontWeight: 800,
+          color: "#14253d",
+          lineHeight: 1.1,
+        }}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
 const infoRow: React.CSSProperties = {
   fontSize: 14,
   color: "#243447",
@@ -289,4 +471,36 @@ const secondaryBtn: React.CSSProperties = {
   border: "1px solid #e5e7eb",
   fontWeight: 600,
   fontSize: 15,
+};
+
+const filterLabel: React.CSSProperties = {
+  fontSize: 12,
+  color: "#667085",
+  marginBottom: 6,
+  fontWeight: 600,
+};
+
+const filterInput: React.CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 10,
+  border: "1px solid #e5e7eb",
+  background: "white",
+  color: "#111827",
+  fontSize: 14,
+};
+
+const filterBtn: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  minHeight: 40,
+  padding: "0 14px",
+  borderRadius: 12,
+  textDecoration: "none",
+  background: "white",
+  color: "#111827",
+  border: "1px solid #e5e7eb",
+  fontWeight: 600,
+  fontSize: 14,
+  cursor: "pointer",
 };
