@@ -19,6 +19,8 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173",
         "https://south-east-society.vercel.app",
+        "https://south-east-society-git-main-zjwang168s-projects.vercel.app",
+        "https://south-east-society-3t1rph4gi-zjwang168s-projects.vercel.app",
     ],
     allow_credentials=True,
     allow_methods=["*"],
