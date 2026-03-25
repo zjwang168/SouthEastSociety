@@ -66,3 +66,62 @@ def get_dashboard_stats(
         "total_customers": int(total_customers),
         "total_outstanding": float(total_outstanding),
     }
+
+
+@router.get("/analytics")
+def get_dashboard_analytics(
+    start: str | None = None,
+    end: str | None = None,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user_from_header),
+):
+    orders_q = db.query(models.Order)
+
+    if start:
+        start_dt = _parse_dt(start)
+        orders_q = orders_q.filter(models.Order.created_at >= start_dt)
+
+    if end:
+        end_dt = _parse_dt(end)
+        orders_q = orders_q.filter(models.Order.created_at <= end_dt)
+
+    payment_rows = (
+        orders_q.with_entities(
+            models.Order.payment_method,
+            func.coalesce(func.sum(models.Order.paid_amount), 0).label("total_paid"),
+        )
+        .group_by(models.Order.payment_method)
+        .all()
+    )
+
+    payment_breakdown = {
+        (method or "unknown"): float(total_paid or 0)
+        for method, total_paid in payment_rows
+    }
+
+    top_customer_rows = (
+        orders_q.join(models.Customer, models.Order.customer_id == models.Customer.id)
+        .with_entities(
+            models.Customer.id.label("customer_id"),
+            models.Customer.nickname.label("nickname"),
+            func.coalesce(func.sum(models.Order.paid_amount), 0).label("total_spent"),
+        )
+        .group_by(models.Customer.id, models.Customer.nickname)
+        .order_by(func.coalesce(func.sum(models.Order.paid_amount), 0).desc())
+        .limit(5)
+        .all()
+    )
+
+    top_customers = [
+        {
+            "customer_id": row.customer_id,
+            "name": row.nickname if row.nickname else f"Customer #{row.customer_id}",
+            "total_spent": float(row.total_spent or 0),
+        }
+        for row in top_customer_rows
+    ]
+
+    return {
+        "payment_breakdown": payment_breakdown,
+        "top_customers": top_customers,
+    }

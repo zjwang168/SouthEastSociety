@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { api } from "../api";
 
@@ -20,16 +20,26 @@ type DashboardStats = {
   total_outstanding: number;
 };
 
+type DashboardAnalytics = {
+  payment_breakdown: Record<string, number>;
+  top_customers: Array<{
+    name: string | null;
+    total_spent: number;
+  }>;
+};
+
 export default function DashboardPage() {
   const nav = useNavigate();
   const [me, setMe] = useState<Me | null>(null);
   const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [analytics, setAnalytics] = useState<DashboardAnalytics | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const today = new Date().toISOString().slice(0, 10);
   const [startDate, setStartDate] = useState<string>(today);
   const [endDate, setEndDate] = useState<string>(today);
   const [statsLoading, setStatsLoading] = useState(false);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
 
   useEffect(() => {
     async function loadMe() {
@@ -48,27 +58,81 @@ export default function DashboardPage() {
   }, [nav]);
 
   useEffect(() => {
-    async function loadStats() {
+    async function loadDashboardData() {
       if (!me || me.role !== "admin") return;
 
       setStatsLoading(true);
+      setAnalyticsLoading(true);
+
       try {
-        const res = await api.get("/dashboard/stats", {
-          params: {
-            start: `${startDate}T00:00:00`,
-            end: `${endDate}T23:59:59`,
-          },
-        });
-        setStats(res.data);
+        const [statsRes, analyticsRes] = await Promise.all([
+          api.get("/dashboard/stats", {
+            params: {
+              start: `${startDate}T00:00:00`,
+              end: `${endDate}T23:59:59`,
+            },
+          }),
+          api.get("/dashboard/analytics", {
+            params: {
+              start: `${startDate}T00:00:00`,
+              end: `${endDate}T23:59:59`,
+            },
+          }),
+        ]);
+
+        setStats(statsRes.data);
+        setAnalytics(analyticsRes.data);
       } catch (e) {
-        console.error("Failed to load dashboard stats:", e);
+        console.error("Failed to load dashboard data:", e);
       } finally {
         setStatsLoading(false);
+        setAnalyticsLoading(false);
       }
     }
 
-    loadStats();
+    loadDashboardData();
   }, [me, startDate, endDate]);
+
+  const paymentSlices = useMemo(() => {
+    const breakdown = analytics?.payment_breakdown ?? {};
+    const entries = Object.entries(breakdown).filter(([, amount]) => Number(amount) > 0);
+    const total = entries.reduce((sum, [, amount]) => sum + Number(amount), 0);
+
+    if (total <= 0) return { total: 0, slices: [], background: "#e5e7eb" };
+
+    const palette = [
+      "#14253d",
+      "#4f46e5",
+      "#0f766e",
+      "#b45309",
+      "#7c3aed",
+      "#be123c",
+    ];
+
+    let current = 0;
+    const slices = entries.map(([method, amount], index) => {
+      const value = Number(amount);
+      const percent = (value / total) * 100;
+      const start = current;
+      const end = current + percent;
+      current = end;
+
+      return {
+        method,
+        value,
+        percent,
+        color: palette[index % palette.length],
+        start,
+        end,
+      };
+    });
+
+    const background = `conic-gradient(${slices
+      .map((slice) => `${slice.color} ${slice.start}% ${slice.end}%`)
+      .join(", ")})`;
+
+    return { total, slices, background };
+  }, [analytics]);
 
   function logout() {
     localStorage.removeItem("access_token");
@@ -99,7 +163,7 @@ export default function DashboardPage() {
   return (
     <div
       style={{
-        maxWidth: 980,
+        maxWidth: 1100,
         margin: "40px auto",
         padding: 24,
         fontFamily: "system-ui",
@@ -350,6 +414,10 @@ export default function DashboardPage() {
                 Outstanding
               </Link>
 
+              <Link to="/top-customers" style={secondaryBtn}>
+                Top Customers
+              </Link>
+
               <Link to="/sms" style={secondaryBtn}>
                 SMS Queue
               </Link>
@@ -374,10 +442,108 @@ export default function DashboardPage() {
           }}
         >
           {me.role === "admin"
-            ? "Admin can manage orders, customers, outstanding balances, SMS queue, audit log, password reset, and exports."
+            ? "Admin can manage orders, customers, outstanding balances, top customers, SMS queue, audit log, password reset, and exports."
             : "Staff account is for export and analysis only. Customer phone numbers are hidden."}
         </div>
       </div>
+
+      {me.role === "admin" && (
+        <div style={{ marginTop: 32 }}>
+          <div
+            style={{
+              fontWeight: 800,
+              fontSize: 18,
+              marginBottom: 12,
+              color: "#14253d",
+            }}
+          >
+            Payment Breakdown
+          </div>
+
+          <div style={analyticsCard}>
+            {analyticsLoading ? (
+              <div style={analyticsMuted}>Loading...</div>
+            ) : !analytics || paymentSlices.total <= 0 ? (
+              <div style={analyticsMuted}>No payment data for this range.</div>
+            ) : (
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "280px 1fr",
+                  gap: 24,
+                  alignItems: "center",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "center",
+                  }}
+                >
+                  <div
+                    style={{
+                      width: 220,
+                      height: 220,
+                      borderRadius: "50%",
+                      background: paymentSlices.background,
+                      border: "1px solid #eceff3",
+                      position: "relative",
+                    }}
+                  >
+                    <div
+                      style={{
+                        position: "absolute",
+                        inset: 38,
+                        background: "white",
+                        borderRadius: "50%",
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        textAlign: "center",
+                        padding: 12,
+                      }}
+                    >
+                      <div style={{ fontSize: 12, color: "#667085", fontWeight: 600 }}>
+                        Total Paid
+                      </div>
+                      <div style={{ fontSize: 24, fontWeight: 800, color: "#14253d" }}>
+                        ${paymentSlices.total.toFixed(2)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {paymentSlices.slices.map((slice) => (
+                    <div key={slice.method} style={legendRow}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <span
+                          style={{
+                            width: 12,
+                            height: 12,
+                            borderRadius: 999,
+                            background: slice.color,
+                            display: "inline-block",
+                          }}
+                        />
+                        <span style={{ textTransform: "capitalize" }}>{slice.method}</span>
+                      </div>
+
+                      <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                        <span style={{ color: "#667085", fontSize: 13 }}>
+                          {slice.percent.toFixed(1)}%
+                        </span>
+                        <strong>${slice.value.toFixed(2)}</strong>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -508,4 +674,25 @@ const filterBtn: React.CSSProperties = {
   fontWeight: 600,
   fontSize: 14,
   cursor: "pointer",
+};
+
+const analyticsCard: React.CSSProperties = {
+  background: "#fafafa",
+  border: "1px solid #eceff3",
+  borderRadius: 14,
+  padding: 20,
+};
+
+const analyticsMuted: React.CSSProperties = {
+  fontSize: 14,
+  color: "#667085",
+};
+
+const legendRow: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 12,
+  paddingBottom: 10,
+  borderBottom: "1px solid #eceff3",
 };

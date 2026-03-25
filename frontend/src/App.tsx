@@ -13,13 +13,13 @@ import ExportPage from "./pages/ExportPage";
 import AuditPage from "./pages/AuditPage";
 import ChangePasswordPage from "./pages/ChangePasswordPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
+import TopCustomersPage from "./pages/TopCustomersPage";
 
 export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
 
-      {/* Everyone with token */}
       <Route
         path="/dashboard"
         element={
@@ -47,7 +47,6 @@ export default function App() {
         }
       />
 
-      {/* Admin only */}
       <Route
         path="/customers"
         element={
@@ -107,6 +106,15 @@ export default function App() {
         element={
           <RoleProtectedRoute allowed={["admin"]}>
             <ResetPasswordPage />
+          </RoleProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/top-customers"
+        element={
+          <RoleProtectedRoute allowed={["admin"]}>
+            <TopCustomersPage />
           </RoleProtectedRoute>
         }
       />
