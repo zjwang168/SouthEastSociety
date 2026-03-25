@@ -11,6 +11,7 @@ from .routers.orders import router as orders_router
 from .routers.sms import router as sms_router
 from .routers.audit import router as audit_router
 from .routers.dashboard import router as dashboard_router
+from .routers.admin import router as admin_router
 
 app = FastAPI(title="SouthEastSociety - Internal Dashboard API")
 
@@ -50,3 +51,4 @@ app.include_router(orders_router)
 app.include_router(sms_router, prefix="/sms", tags=["sms"])
 app.include_router(audit_router)
 app.include_router(dashboard_router)
+app.include_router(admin_router)
