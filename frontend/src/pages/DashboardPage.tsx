@@ -15,6 +15,7 @@ type Me = {
 type DashboardStats = {
   total_revenue: number;
   total_credits_issued: number;
+  total_credits_redeemed: number;
   total_customers: number;
   total_outstanding: number;
 };
@@ -104,7 +105,6 @@ export default function DashboardPage() {
         fontFamily: "system-ui",
       }}
     >
-      {/* Header */}
       <div
         style={{
           display: "flex",
@@ -201,7 +201,6 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Stats cards */}
       {me.role === "admin" && (
         <div style={{ marginTop: 24 }}>
           <div
@@ -256,7 +255,7 @@ export default function DashboardPage() {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+              gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
               gap: 14,
             }}
           >
@@ -274,6 +273,14 @@ export default function DashboardPage() {
                 statsLoading
                   ? "Loading..."
                   : String(stats?.total_credits_issued ?? 0)
+              }
+            />
+            <StatCard
+              title="Total Redeemed Credits"
+              value={
+                statsLoading
+                  ? "Loading..."
+                  : String(stats?.total_credits_redeemed ?? 0)
               }
             />
             <StatCard
@@ -296,7 +303,6 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Account box */}
       <div
         style={{
           marginTop: 22,
@@ -317,7 +323,6 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Quick Actions */}
       <div style={{ marginTop: 24 }}>
         <div
           style={{
